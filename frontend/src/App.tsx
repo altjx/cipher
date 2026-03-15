@@ -5,7 +5,7 @@ import { useWebSocket } from './hooks/useWebSocket';
 import QRPairing from './components/QRPairing';
 import ConversationList from './components/ConversationList';
 import MessageThread from './components/MessageThread';
-import StatusBar from './components/StatusBar';
+import DetailPanel from './components/DetailPanel';
 
 type AppView = 'loading' | 'pairing' | 'main';
 
@@ -15,6 +15,8 @@ export default function App() {
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [targetMessageId, setTargetMessageId] = useState<string | null>(null);
   const [phoneStatus, setPhoneStatus] = useState<'connected' | 'offline' | 'reconnecting' | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailParticipantId, setDetailParticipantId] = useState<string | null>(null);
 
   const { subscribe, connectionState } = useWebSocket();
 
@@ -82,12 +84,28 @@ export default function App() {
     setTargetMessageId(messageId);
   }, []);
 
+  const handleSelectConversation = useCallback((id: string) => {
+    setSelectedConversationId(id);
+    setDetailOpen(false);
+    setDetailParticipantId(null);
+  }, []);
+
+  const toggleDetail = useCallback(() => {
+    setDetailOpen((v) => !v);
+    setDetailParticipantId(null);
+  }, []);
+
+  const handleShowParticipantDetail = useCallback((participantId: string) => {
+    setDetailParticipantId(participantId);
+    setDetailOpen(true);
+  }, []);
+
   const selectedConversation = conversations.find((c) => c.id === selectedConversationId);
 
   if (view === 'loading') {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-[#0f0f1a]">
-        <div className="text-gray-400 text-lg">Connecting...</div>
+      <div className="flex items-center justify-center min-h-screen bg-[var(--bg)]">
+        <div className="text-[var(--text-2)] text-lg">Connecting...</div>
       </div>
     );
   }
@@ -97,39 +115,48 @@ export default function App() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-[#0f0f1a]">
-      <StatusBar phoneStatus={phoneStatus} wsConnected={connectionState === 'connected'} />
+    <div className="flex h-screen p-3 gap-3 bg-[var(--bg)]">
+      <ConversationList
+        conversations={conversations}
+        selectedId={selectedConversationId}
+        onSelect={handleSelectConversation}
+        onSelectMessage={handleSelectMessage}
+        onConversationsUpdate={handleConversationsUpdate}
+        subscribe={subscribe}
+        phoneStatus={phoneStatus}
+        wsConnected={connectionState === 'connected'}
+      />
 
-      <div className="flex flex-1 min-h-0">
-        <ConversationList
-          conversations={conversations}
-          selectedId={selectedConversationId}
-          onSelect={setSelectedConversationId}
-          onSelectMessage={handleSelectMessage}
-          onConversationsUpdate={handleConversationsUpdate}
+      {selectedConversationId ? (
+        <MessageThread
+          conversationId={selectedConversationId}
+          conversation={selectedConversation}
           subscribe={subscribe}
+          targetMessageId={targetMessageId}
+          onTargetReached={() => setTargetMessageId(null)}
+          detailOpen={detailOpen}
+          onToggleDetail={toggleDetail}
+          onShowParticipantDetail={handleShowParticipantDetail}
         />
-
-        {selectedConversationId ? (
-          <MessageThread
-            conversationId={selectedConversationId}
-            conversation={selectedConversation}
-            subscribe={subscribe}
-            targetMessageId={targetMessageId}
-            onTargetReached={() => setTargetMessageId(null)}
-          />
-        ) : (
-          <div className="flex-1 flex flex-col">
-            <div className="titlebar-drag h-12 flex-shrink-0" />
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center text-gray-500">
-                <p className="text-lg mb-1">Select a conversation</p>
-                <p className="text-sm">Choose from the list on the left to start messaging</p>
-              </div>
+      ) : (
+        <div className="flex-1 bg-[var(--surface-1)] rounded-[20px] shadow-[0_4px_24px_rgba(0,0,0,0.2)] flex flex-col">
+          <div className="titlebar-drag h-12 flex-shrink-0" />
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center text-[var(--text-3)]">
+              <p className="text-lg mb-1">Select a conversation</p>
+              <p className="text-sm">Choose from the list on the left to start messaging</p>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {detailOpen && selectedConversation && (
+        <DetailPanel
+          conversationId={selectedConversationId!}
+          conversation={selectedConversation}
+          focusParticipantId={detailParticipantId}
+        />
+      )}
     </div>
   );
 }

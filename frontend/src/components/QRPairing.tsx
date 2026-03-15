@@ -52,23 +52,23 @@ export default function QRPairing({ subscribe, onPaired }: QRPairingProps) {
   }, [subscribe, onPaired]);
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-[#0f0f1a]">
-      <div className="bg-[#1a1a2e] border border-[#2a2a3e] rounded-2xl p-10 max-w-md w-full mx-4 text-center shadow-xl">
-        <h1 className="text-2xl font-semibold text-[#e2e8f0] mb-2">
+    <div className="flex items-center justify-center min-h-screen bg-[var(--bg)]">
+      <div className="bg-[var(--surface-1)] border border-[var(--border)] rounded-2xl p-10 max-w-md w-full mx-4 text-center shadow-[0_4px_24px_rgba(0,0,0,0.2)]">
+        <h1 className="text-2xl font-semibold text-[var(--text)] mb-2">
           Google Messages for Web
         </h1>
-        <p className="text-gray-400 mb-8 text-sm">
+        <p className="text-[var(--text-2)] mb-8 text-sm">
           Scan the QR code with your phone to pair
         </p>
 
         <div className="flex justify-center mb-8">
           {loading && (
-            <div className="w-[256px] h-[256px] bg-[#2a2a3e] rounded-lg animate-pulse flex items-center justify-center">
-              <span className="text-gray-500 text-sm">Loading...</span>
+            <div className="w-[256px] h-[256px] bg-[var(--surface-2)] rounded-lg animate-pulse flex items-center justify-center">
+              <span className="text-[var(--text-3)] text-sm">Loading...</span>
             </div>
           )}
           {error && (
-            <div className="w-[256px] h-[256px] bg-[#2a2a3e] rounded-lg flex items-center justify-center">
+            <div className="w-[256px] h-[256px] bg-[var(--surface-2)] rounded-lg flex items-center justify-center">
               <span className="text-red-400 text-sm">{error}</span>
             </div>
           )}
@@ -79,10 +79,10 @@ export default function QRPairing({ subscribe, onPaired }: QRPairingProps) {
           )}
         </div>
 
-        <div className="text-left text-sm text-gray-400 space-y-2">
+        <div className="text-left text-sm text-[var(--text-2)] space-y-2">
           <p>1. Open Google Messages on your phone</p>
-          <p>2. Tap <span className="text-[#e2e8f0]">Device pairing</span> in the menu</p>
-          <p>3. Tap <span className="text-[#e2e8f0]">QR code scanner</span></p>
+          <p>2. Tap <span className="text-[var(--text)]">Device pairing</span> in the menu</p>
+          <p>3. Tap <span className="text-[var(--text)]">QR code scanner</span></p>
           <p>4. Point your phone at this screen to scan the code</p>
         </div>
       </div>

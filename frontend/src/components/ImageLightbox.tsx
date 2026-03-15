@@ -21,7 +21,7 @@ interface ImageLightboxProps {
 }
 
 // Check if running in Electron
-const electronAPI = (window as Record<string, unknown>).electronAPI as {
+const electronAPI = (window as unknown as Record<string, unknown>).electronAPI as {
   openImageInPreview?: (url: string) => Promise<{ success: boolean }>;
 } | undefined;
 
@@ -84,6 +84,7 @@ export default function ImageLightbox({ images, currentIndex, onClose, onNavigat
         .yarl__root {
           backdrop-filter: blur(20px);
           -webkit-backdrop-filter: blur(20px);
+          -webkit-app-region: no-drag;
         }
         /* Keep full backdrop, but pad the slides so images don't overlap the bars */
         .yarl__container {
@@ -131,7 +132,7 @@ export default function ImageLightbox({ images, currentIndex, onClose, onNavigat
           ],
         }}
         styles={{
-          root: { '--yarl__color_backdrop': 'rgba(0, 0, 0, 0.5)' } as React.CSSProperties,
+          root: { '--yarl__color_backdrop': 'rgba(0, 0, 0, 0.5)' } as Record<string, string>,
         }}
         controller={{ closeOnBackdropClick: true }}
       />

@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
+	"os/exec"
 	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
 )
@@ -171,11 +174,53 @@ func (h *Handlers) GetMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Transcode non-browser-friendly audio formats to OGG Opus via ffmpeg
+	if strings.HasPrefix(mimeType, "audio/") && !isBrowserAudio(mimeType) {
+		transcoded, err := transcodeAudioToOgg(data)
+		if err == nil {
+			data = transcoded
+			mimeType = "audio/ogg"
+		}
+		// If transcoding fails, serve the original and let the client handle it
+	}
+
 	w.Header().Set("Content-Type", mimeType)
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(http.StatusOK)
 	w.Write(data)
+}
+
+// isBrowserAudio returns true for audio formats that browsers can natively decode.
+func isBrowserAudio(mime string) bool {
+	switch mime {
+	case "audio/mpeg", "audio/mp3", "audio/ogg", "audio/wav", "audio/webm",
+		"audio/aac", "audio/mp4", "audio/flac":
+		return true
+	}
+	return false
+}
+
+// transcodeAudioToOgg converts audio data to OGG Opus using ffmpeg.
+func transcodeAudioToOgg(input []byte) ([]byte, error) {
+	cmd := exec.Command("ffmpeg",
+		"-i", "pipe:0", // read from stdin
+		"-c:a", "libopus",
+		"-b:a", "64k",
+		"-f", "ogg",
+		"-y",          // overwrite
+		"pipe:1",      // write to stdout
+	)
+	cmd.Stdin = bytes.NewReader(input)
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
 }
 
 // RequestFullSizeImage asks Google to make a full-resolution image available.
@@ -274,6 +319,34 @@ func (h *Handlers) SearchMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, SearchResponse{Results: results})
+}
+
+// GetConversationMedia returns messages with media for a conversation.
+// GET /api/conversations/:id/media
+func (h *Handlers) GetConversationMedia(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	conversationID := vars["id"]
+
+	limit := queryParamInt(r, "limit", 30)
+	cursor := r.URL.Query().Get("cursor")
+
+	// Ensure messages are cached by fetching fresh from the live client first.
+	// This prevents a race where the detail panel queries the DB before the
+	// message thread's fetch has populated the cache.
+	if h.client.GetClient() != nil {
+		_, _, _ = h.client.FetchMessagesFresh(conversationID, 50, "")
+	}
+
+	msgs, nextCursor, err := h.db.GetMediaMessages(conversationID, limit, cursor)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to get media messages: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, MessageListResponse{
+		Messages:   msgs,
+		NextCursor: nextCursor,
+	})
 }
 
 // Helpers

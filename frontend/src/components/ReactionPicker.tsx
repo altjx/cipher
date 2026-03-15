@@ -23,7 +23,7 @@ export default function ReactionPicker({ onSelect, onClose }: ReactionPickerProp
   return (
     <div
       ref={ref}
-      className="absolute bottom-full mb-1 left-0 flex gap-1 bg-[#1a1a2e] border border-[#2a2a3e] rounded-lg px-2 py-1.5 shadow-lg z-10"
+      className="absolute bottom-full mb-1 left-0 flex gap-1 bg-[var(--surface-1)] border border-[var(--border)] rounded-lg px-2 py-1.5 shadow-lg z-10"
     >
       {REACTIONS.map((emoji) => (
         <button

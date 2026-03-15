@@ -1,11 +1,27 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Send, Paperclip, X } from 'lucide-react';
+import { Send, Paperclip, X, Search, MoreVertical, Smile, Info, Clock } from 'lucide-react';
 import type { Message, Conversation, WsNewMessage, WsMessageUpdate, WsMessageStatus, WsTyping } from '../api/client';
 import { fetchMessages, sendMessage, sendMedia, sendReaction, markRead, requestFullSizeImage } from '../api/client';
 import MessageBubble from './MessageBubble';
+import { avatarGradient } from '../utils/avatarGradient';
 import ImageStack from './ImageStack';
 import ImageLightbox, { type LightboxImage } from './ImageLightbox';
 import { getMediaUrl } from './MediaPlayer';
+import EmojiPicker from './EmojiPicker';
+
+const EMOJI_RE = /\p{Extended_Pictographic}/gu;
+
+function getInitials(name: string): string {
+  return name
+    .replace(EMOJI_RE, '')
+    .trim()
+    .split(/\s+/)
+    .map((w) => w[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+}
 
 interface MessageThreadProps {
   conversationId: string;
@@ -13,6 +29,9 @@ interface MessageThreadProps {
   subscribe: (eventType: 'new_message' | 'message_update' | 'message_status' | 'typing', callback: (data: unknown) => void) => () => void;
   targetMessageId?: string | null;
   onTargetReached?: () => void;
+  detailOpen: boolean;
+  onToggleDetail: () => void;
+  onShowParticipantDetail: (participantId: string) => void;
 }
 
 function dateSeparatorLabel(ts: number): string {
@@ -35,7 +54,7 @@ function isSameDay(ts1: number, ts2: number): boolean {
 // In-memory cache so switching back to a conversation is instant
 const messageCache = new Map<string, { messages: Message[]; cursor: string | null; hasMore: boolean }>();
 
-export default function MessageThread({ conversationId, conversation, subscribe, targetMessageId, onTargetReached }: MessageThreadProps) {
+export default function MessageThread({ conversationId, conversation, subscribe, targetMessageId, onTargetReached, detailOpen, onToggleDetail, onShowParticipantDetail: _onShowParticipantDetail }: MessageThreadProps) {
   const cached = messageCache.get(conversationId);
   const [messages, setMessages] = useState<Message[]>(cached?.messages ?? []);
   const [text, setText] = useState('');
@@ -46,10 +65,17 @@ export default function MessageThread({ conversationId, conversation, subscribe,
   const [typingNames, setTypingNames] = useState<string[]>([]);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showTimestamps, setShowTimestamps] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showMenu, setShowMenu] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const initialLoadRef = useRef(cached ? true : false);
   const typingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
@@ -57,29 +83,47 @@ export default function MessageThread({ conversationId, conversation, subscribe,
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
+  // Close menu on outside click
+  useEffect(() => {
+    if (!showMenu) return;
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showMenu]);
+
+  // Focus search input when opened
+  useEffect(() => {
+    if (showSearch) searchInputRef.current?.focus();
+  }, [showSearch]);
+
   // Load messages on conversation change
   useEffect(() => {
     let cancelled = false;
     setReplyTo(null);
     setText('');
     setTypingNames([]);
+    setShowEmojiPicker(false);
+    setShowSearch(false);
+    setSearchQuery('');
+    setShowMenu(false);
 
     const cached = messageCache.get(conversationId);
     if (cached) {
-      // Restore from cache instantly
       setMessages(cached.messages);
       setCursor(cached.cursor);
       setHasMore(cached.hasMore);
       initialLoadRef.current = true;
     } else {
-      // Fresh load
       setMessages([]);
       setCursor(null);
       setHasMore(true);
       initialLoadRef.current = false;
     }
 
-    // Always fetch fresh data (but cached view shows immediately)
     fetchMessages(conversationId).then((res) => {
       if (cancelled) return;
       setMessages(res.messages);
@@ -87,14 +131,12 @@ export default function MessageThread({ conversationId, conversation, subscribe,
       setHasMore(res.nextCursor !== null);
       initialLoadRef.current = true;
 
-      // Update cache
       messageCache.set(conversationId, {
         messages: res.messages,
         cursor: res.nextCursor,
         hasMore: res.nextCursor !== null,
       });
 
-      // Mark last message as read
       if (res.messages.length > 0) {
         const last = res.messages[res.messages.length - 1];
         if (!last.sender.isMe) {
@@ -103,7 +145,6 @@ export default function MessageThread({ conversationId, conversation, subscribe,
       }
     }).catch(() => {});
 
-    // Auto-focus the input when switching conversations
     textareaRef.current?.focus();
 
     return () => { cancelled = true; };
@@ -122,7 +163,6 @@ export default function MessageThread({ conversationId, conversation, subscribe,
 
     const found = messages.find((m) => m.id === targetMessageId);
     if (found) {
-      // Target is in loaded messages — scroll to it
       requestAnimationFrame(() => {
         const el = scrollRef.current?.querySelector(`[data-message-id="${targetMessageId}"]`);
         if (el) {
@@ -135,11 +175,10 @@ export default function MessageThread({ conversationId, conversation, subscribe,
       return;
     }
 
-    // Target not loaded yet — load older pages until we find it
     if (!hasMore || !cursor || loadingMore) return;
 
     let cancelled = false;
-    let currentCursor = cursor;
+    let currentCursor: string | null = cursor;
     let accumulated = [...messages];
 
     const loadUntilFound = async () => {
@@ -148,7 +187,7 @@ export default function MessageThread({ conversationId, conversation, subscribe,
         try {
           const res = await fetchMessages(conversationId, currentCursor);
           accumulated = [...res.messages, ...accumulated];
-          currentCursor = res.nextCursor;
+          currentCursor = res.nextCursor ?? null;
 
           if (res.messages.some((m) => m.id === targetMessageId)) {
             if (!cancelled) {
@@ -169,7 +208,6 @@ export default function MessageThread({ conversationId, conversation, subscribe,
           break;
         }
       }
-      // Not found after loading — clear target
       if (!cancelled) onTargetReached?.();
     };
 
@@ -183,7 +221,6 @@ export default function MessageThread({ conversationId, conversation, subscribe,
       const msg = data as WsNewMessage['data'];
       if (msg.conversationId === conversationId) {
         setMessages((prev) => {
-          // If message already exists (e.g. reaction update), replace it in place
           const existingIdx = prev.findIndex((m) => m.id === msg.id);
           let updated: Message[];
           if (existingIdx !== -1) {
@@ -206,7 +243,6 @@ export default function MessageThread({ conversationId, conversation, subscribe,
       }
     });
 
-    // message_update: reaction changes, edits — update in place, no scroll, no markRead
     const unsubUpdate = subscribe('message_update', (data) => {
       const msg = data as WsMessageUpdate['data'];
       if (msg.conversationId === conversationId) {
@@ -240,7 +276,6 @@ export default function MessageThread({ conversationId, conversation, subscribe,
         const name = t.name || conversation?.participants.find((p) => p.id === t.participantId)?.name || 'Someone';
         setTypingNames((prev) => (prev.includes(name) ? prev : [...prev, name]));
 
-        // Clear after 5s
         const existing = typingTimersRef.current.get(t.participantId);
         if (existing) clearTimeout(existing);
         typingTimersRef.current.set(
@@ -286,7 +321,6 @@ export default function MessageThread({ conversationId, conversation, subscribe,
         setHasMore(res.nextCursor !== null);
         setLoadingMore(false);
 
-        // Maintain scroll position
         requestAnimationFrame(() => {
           if (el) {
             el.scrollTop = el.scrollHeight - prevHeight;
@@ -330,6 +364,36 @@ export default function MessageThread({ conversationId, conversation, subscribe,
     sendReaction(conversationId, msgId, emoji).catch(() => {});
   }, [conversationId]);
 
+  const handleEmojiSelect = useCallback((emoji: string) => {
+    const ta = textareaRef.current;
+    if (ta) {
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      const newText = text.slice(0, start) + emoji + text.slice(end);
+      setText(newText);
+      setTimeout(() => {
+        ta.focus();
+        ta.setSelectionRange(start + emoji.length, start + emoji.length);
+      }, 0);
+    } else {
+      setText((prev) => prev + emoji);
+    }
+    setShowEmojiPicker(false);
+  }, [text]);
+
+  // Filter messages by search query
+  const searchLower = searchQuery.toLowerCase();
+  const matchingIds = useMemo(() => {
+    if (!searchQuery || searchQuery.length < 2) return null;
+    const ids = new Set<string>();
+    for (const msg of messages) {
+      if (msg.text.toLowerCase().includes(searchLower)) {
+        ids.add(msg.id);
+      }
+    }
+    return ids;
+  }, [messages, searchLower, searchQuery]);
+
   // Collect all images across messages for the lightbox
   const allImages = useMemo<LightboxImage[]>(() => {
     const imgs: LightboxImage[] = [];
@@ -359,7 +423,6 @@ export default function MessageThread({ conversationId, conversation, subscribe,
       const idx = allImages.findIndex((img) => img.url === url);
       if (idx !== -1) {
         setLightboxIndex(idx);
-        // Request full-size if this is a thumbnail
         const img = allImages[idx];
         if (img.isThumbnail && img.actionMessageId) {
           const key = `${img.messageId}:${img.actionMessageId}`;
@@ -374,7 +437,6 @@ export default function MessageThread({ conversationId, conversation, subscribe,
     [allImages]
   );
 
-  // When navigating in the lightbox, request full-size for the new image
   const handleLightboxNavigate = useCallback(
     (idx: number) => {
       setLightboxIndex(idx);
@@ -402,6 +464,12 @@ export default function MessageThread({ conversationId, conversation, subscribe,
   const isImageOnly = (msg: Message) =>
     !msg.text && !msg.isSystemMessage && msg.media.length > 0 && msg.media.every((m) => m.mimeType.startsWith('image/'));
 
+  // Participant names for subtitle
+  const otherParticipants = conversation?.participants.filter((p) => !p.isMe) ?? [];
+  const subtitleText = conversation?.isGroup
+    ? otherParticipants.map((p) => p.name).join(', ')
+    : 'RCS';
+
   // Build messages with date separators, grouping consecutive image-only messages
   const elements: React.ReactNode[] = [];
   let i = 0;
@@ -409,11 +477,13 @@ export default function MessageThread({ conversationId, conversation, subscribe,
     const msg = messages[i];
     const prev = i > 0 ? messages[i - 1] : null;
 
+    const isSearchMatch = matchingIds === null || matchingIds.has(msg.id);
+
     const newDay = !prev || !isSameDay(prev.timestamp, msg.timestamp);
     if (newDay) {
       elements.push(
         <div key={`sep-${msg.timestamp}`} className="flex items-center justify-center my-4">
-          <span className="text-xs text-gray-500 bg-[#1a1a2e] px-3 py-1 rounded-full">
+          <span className="text-[11px] font-medium text-[var(--text-3)] bg-[var(--surface-2)] px-3.5 py-1 rounded-lg">
             {dateSeparatorLabel(msg.timestamp)}
           </span>
         </div>
@@ -437,9 +507,8 @@ export default function MessageThread({ conversationId, conversation, subscribe,
       }
 
       if (group.length >= 2) {
-        // Render as a stacked image group
         elements.push(
-          <div key={`stack-${msg.id}`} data-message-id={msg.id}>
+          <div key={`stack-${msg.id}`} data-message-id={msg.id} className={isSearchMatch ? '' : 'opacity-25'}>
             <ImageStack
               messages={group}
               isMe={msg.sender.isMe}
@@ -458,7 +527,7 @@ export default function MessageThread({ conversationId, conversation, subscribe,
       <div
         key={msg.id}
         data-message-id={msg.id}
-        className={`transition-colors duration-1000 rounded-lg ${highlightedId === msg.id ? 'bg-[#4361ee]/20' : ''}`}
+        className={`transition-all duration-300 rounded-lg ${highlightedId === msg.id ? 'bg-[var(--accent)]/20' : ''} ${isSearchMatch ? '' : 'opacity-25'}`}
       >
         <MessageBubble
           message={msg}
@@ -467,6 +536,8 @@ export default function MessageThread({ conversationId, conversation, subscribe,
           onReply={handleReply}
           onReact={handleReact}
           onImageClick={handleImageClick}
+          conversationName={conversation?.name}
+          showTimestamp={showTimestamps}
         />
       </div>
     );
@@ -474,49 +545,141 @@ export default function MessageThread({ conversationId, conversation, subscribe,
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full min-w-0">
+    <div className="flex-1 flex flex-col h-full min-w-0 bg-[var(--surface-1)] rounded-[20px] shadow-[0_4px_24px_rgba(0,0,0,0.2)] overflow-hidden">
       {/* Draggable title bar region */}
-      <div className="titlebar-drag h-12 flex-shrink-0 border-b border-[#2a2a3e] bg-[#1a1a2e] flex items-center px-4 gap-3">
+      <div className="titlebar-drag flex-shrink-0 border-b border-[var(--border)] flex items-center px-6 gap-3.5" style={{ minHeight: '56px' }}>
         {conversation && (
           <>
             <div
-              className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-medium flex-shrink-0"
-              style={{ backgroundColor: conversation.participants[0]?.avatarColor ?? '#4361ee' }}
+              className="w-[38px] h-[38px] rounded-xl flex items-center justify-center text-white text-[13px] font-semibold flex-shrink-0"
+              style={{ background: avatarGradient(conversation.participants[0]?.avatarColor ?? '#3b82f6') }}
             >
-              {conversation.name
-                .split(' ')
-                .map((w) => w[0])
-                .filter(Boolean)
-                .slice(0, 2)
-                .join('')
-                .toUpperCase()}
+              {getInitials(conversation.name)}
             </div>
-            <div>
-              <h2 className="text-sm font-medium text-[#e2e8f0]">{conversation.name}</h2>
-              {conversation.isGroup && (
-                <p className="text-xs text-gray-500">
-                  {conversation.participants.map((p) => p.name).join(', ')}
+            <div className="min-w-0 flex-1">
+              <h2 className="text-sm font-semibold text-[var(--text)] truncate">{conversation.name}</h2>
+              {conversation.isGroup ? (
+                <p
+                  className="text-[11px] text-[var(--text-2)] truncate cursor-pointer hover:text-[var(--accent)] transition-colors titlebar-no-drag"
+                  onClick={() => onToggleDetail()}
+                  title="View participants"
+                >
+                  {subtitleText}
                 </p>
+              ) : (
+                <p className="text-[11px] text-[var(--text-2)]">{subtitleText}</p>
               )}
+            </div>
+            <div className="ml-auto flex gap-1 titlebar-no-drag">
+              <button
+                onClick={() => setShowTimestamps((v) => !v)}
+                className={`w-9 h-9 rounded-[10px] transition-all flex items-center justify-center ${
+                  showTimestamps
+                    ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                    : 'bg-[var(--surface-2)] text-[var(--text-2)] hover:bg-[var(--surface-3)] hover:text-[var(--text)]'
+                }`}
+                title="Toggle timestamps"
+              >
+                <Clock className="w-[15px] h-[15px]" />
+              </button>
+              <button
+                onClick={() => { setShowSearch((v) => !v); setSearchQuery(''); }}
+                className={`w-9 h-9 rounded-[10px] transition-all flex items-center justify-center ${
+                  showSearch
+                    ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                    : 'bg-[var(--surface-2)] text-[var(--text-2)] hover:bg-[var(--surface-3)] hover:text-[var(--text)]'
+                }`}
+                title="Search messages"
+              >
+                <Search className="w-[15px] h-[15px]" />
+              </button>
+              <button
+                onClick={() => onToggleDetail()}
+                className={`w-9 h-9 rounded-[10px] transition-all flex items-center justify-center ${
+                  detailOpen
+                    ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                    : 'bg-[var(--surface-2)] text-[var(--text-2)] hover:bg-[var(--surface-3)] hover:text-[var(--text)]'
+                }`}
+                title="Contact info"
+              >
+                <Info className="w-[15px] h-[15px]" />
+              </button>
+              <div className="relative" ref={menuRef}>
+                <button
+                  onClick={() => setShowMenu((v) => !v)}
+                  className={`w-9 h-9 rounded-[10px] transition-all flex items-center justify-center ${
+                    showMenu
+                      ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                      : 'bg-[var(--surface-2)] text-[var(--text-2)] hover:bg-[var(--surface-3)] hover:text-[var(--text)]'
+                  }`}
+                >
+                  <MoreVertical className="w-[15px] h-[15px]" />
+                </button>
+                {showMenu && (
+                  <div className="absolute right-0 top-full mt-1 bg-[var(--surface-2)] border border-[var(--border)] rounded-xl shadow-lg py-1 min-w-[160px] z-20">
+                    <button
+                      onClick={() => { onToggleDetail(); setShowMenu(false); }}
+                      className="w-full text-left px-4 py-2 text-sm text-[var(--text)] hover:bg-[var(--surface-3)] transition-colors"
+                    >
+                      {detailOpen ? 'Hide info panel' : 'Contact info'}
+                    </button>
+                    <button
+                      onClick={() => { setShowTimestamps((v) => !v); setShowMenu(false); }}
+                      className="w-full text-left px-4 py-2 text-sm text-[var(--text)] hover:bg-[var(--surface-3)] transition-colors"
+                    >
+                      {showTimestamps ? 'Hide timestamps' : 'Show timestamps'}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </>
         )}
       </div>
 
+      {/* Inline search bar */}
+      {showSearch && (
+        <div className="px-6 py-2 border-b border-[var(--border)] flex items-center gap-2">
+          <Search className="w-4 h-4 text-[var(--text-3)] flex-shrink-0" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            placeholder="Search in conversation..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="flex-1 bg-transparent text-sm text-[var(--text)] placeholder-[var(--text-3)] focus:outline-none"
+          />
+          {matchingIds !== null && (
+            <span className="text-xs text-[var(--text-3)]">{matchingIds.size} found</span>
+          )}
+          <button onClick={() => { setShowSearch(false); setSearchQuery(''); }} className="text-[var(--text-3)] hover:text-[var(--text)]">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Messages area */}
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-4 py-2"
+        className="flex-1 overflow-y-auto px-6 py-5"
       >
         {loadingMore && (
-          <div className="text-center text-gray-500 text-xs py-2">Loading older messages...</div>
+          <div className="text-center text-[var(--text-3)] text-xs py-2">Loading older messages...</div>
         )}
         {elements}
         {typingNames.length > 0 && (
-          <div className="text-xs text-gray-400 mb-2 ml-1">
-            {typingNames.join(', ')} {typingNames.length === 1 ? 'is' : 'are'} typing...
+          <div className="flex items-center gap-2 mb-2 self-start">
+            <div className="bg-[var(--surface-2)] rounded-[18px_18px_18px_6px] px-4 py-2.5 flex items-center gap-2">
+              <div className="flex gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-3)]" style={{ animation: 'blink 1.4s ease-in-out infinite' }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-3)]" style={{ animation: 'blink 1.4s ease-in-out infinite 0.15s' }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-3)]" style={{ animation: 'blink 1.4s ease-in-out infinite 0.3s' }} />
+              </div>
+              <span className="text-xs text-[var(--text-3)]">
+                {typingNames.join(', ')} {typingNames.length === 1 ? 'is' : 'are'} typing...
+              </span>
+            </div>
           </div>
         )}
         <div ref={bottomRef} />
@@ -524,49 +687,68 @@ export default function MessageThread({ conversationId, conversation, subscribe,
 
       {/* Reply preview */}
       {replyTo && (
-        <div className="px-4 py-2 border-t border-[#2a2a3e] bg-[#1a1a2e] flex items-center gap-2">
-          <div className="flex-1 border-l-2 border-[#4361ee] pl-2 min-w-0">
-            <span className="text-xs font-medium text-[#4361ee]">{replyTo.sender.name}</span>
-            <p className="text-xs text-gray-400 truncate">{replyTo.text}</p>
+        <div className="px-6 py-2 border-t border-[var(--border)] flex items-center gap-2">
+          <div className="flex-1 border-l-2 border-[var(--accent)] pl-2 min-w-0">
+            <span className="text-xs font-medium text-[var(--accent)]">{replyTo.sender.name}</span>
+            <p className="text-xs text-[var(--text-2)] truncate">{replyTo.text}</p>
           </div>
-          <button onClick={() => setReplyTo(null)} className="text-gray-400 hover:text-gray-200 p-1">
+          <button onClick={() => setReplyTo(null)} className="text-[var(--text-2)] hover:text-[var(--text)] p-1">
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
       {/* Input bar */}
-      <div className="px-4 py-3 border-t border-[#2a2a3e] bg-[#1a1a2e] flex items-end gap-2">
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="p-2 text-gray-400 hover:text-gray-200 transition-colors rounded-lg hover:bg-[#2a2a3e]"
-        >
-          <Paperclip className="w-5 h-5" />
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          className="hidden"
-          onChange={handleFileSelect}
-        />
+      <div className="px-5 py-3 pb-5 border-t border-[var(--border)] flex items-end gap-2.5">
+        <div className="flex-1 bg-[var(--surface-2)] rounded-2xl flex items-end px-1">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="w-9 h-9 rounded-[10px] text-[var(--text-3)] hover:text-[var(--text)] transition-colors flex items-center justify-center flex-shrink-0"
+          >
+            <Paperclip className="w-[17px] h-[17px]" />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            onChange={handleFileSelect}
+          />
 
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Type a message..."
-          rows={1}
-          className="flex-1 bg-[#0f0f1a] text-[#e2e8f0] text-sm px-4 py-2.5 rounded-lg border border-[#2a2a3e] focus:border-[#4361ee] focus:outline-none resize-none placeholder-gray-500 transition-colors"
-          style={{ maxHeight: '120px' }}
-        />
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Type a message..."
+            rows={1}
+            className="flex-1 bg-transparent text-[var(--text)] text-sm py-2 px-2 focus:outline-none resize-none placeholder-[var(--text-3)] font-[inherit]"
+            style={{ maxHeight: '120px', minHeight: '36px' }}
+          />
+
+          <div className="relative">
+            <button
+              onClick={() => setShowEmojiPicker((v) => !v)}
+              className="w-9 h-9 rounded-[10px] text-[var(--text-3)] hover:text-[var(--text)] transition-colors flex items-center justify-center flex-shrink-0"
+            >
+              <Smile className="w-[17px] h-[17px]" />
+            </button>
+            {showEmojiPicker && (
+              <div className="absolute bottom-full right-0 mb-2">
+                <EmojiPicker
+                  onSelect={handleEmojiSelect}
+                  onClose={() => setShowEmojiPicker(false)}
+                />
+              </div>
+            )}
+          </div>
+        </div>
 
         <button
           onClick={handleSend}
           disabled={!text.trim()}
-          className="p-2 text-[#4361ee] hover:bg-[#4361ee]/10 transition-colors rounded-lg disabled:opacity-30 disabled:cursor-not-allowed"
+          className="w-11 h-11 rounded-[14px] bg-[var(--accent-2)] text-white flex items-center justify-center flex-shrink-0 transition-all hover:scale-105 shadow-[0_2px_8px_rgba(59,130,246,0.25)] hover:shadow-[0_4px_16px_rgba(59,130,246,0.35)] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:scale-100"
         >
-          <Send className="w-5 h-5" />
+          <Send className="w-[18px] h-[18px]" />
         </button>
       </div>
 

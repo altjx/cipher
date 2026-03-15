@@ -40,6 +40,7 @@ type LastMessageResponse struct {
 type ParticipantResponse struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
+	Number      string `json:"number,omitempty"`
 	AvatarColor string `json:"avatarColor"`
 	IsMe        bool   `json:"isMe"`
 }
@@ -222,6 +223,7 @@ func ConvertParticipant(p *gmproto.Participant) ParticipantResponse {
 	return ParticipantResponse{
 		ID:          pid,
 		Name:        name,
+		Number:      p.GetFormattedNumber(),
 		AvatarColor: p.GetAvatarHexColor(),
 		IsMe:        p.GetIsMe(),
 	}
