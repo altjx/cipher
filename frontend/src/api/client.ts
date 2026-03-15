@@ -12,6 +12,7 @@ export interface PairResponse {
 export interface Participant {
   id: string;
   name: string;
+  number?: string;
   avatarColor: string;
   isMe: boolean;
 }
@@ -213,9 +214,10 @@ export function unpair(): Promise<void> {
   return request<void>('/api/unpair', { method: 'POST' });
 }
 
-export function fetchConversations(limit?: number): Promise<ConversationsResponse> {
+export function fetchConversations(limit?: number, folder?: string): Promise<ConversationsResponse> {
   const params = new URLSearchParams();
   if (limit !== undefined) params.set('limit', String(limit));
+  if (folder) params.set('folder', folder);
   const qs = params.toString();
   return request<ConversationsResponse>(`/api/conversations${qs ? `?${qs}` : ''}`);
 }
@@ -300,4 +302,11 @@ export interface SearchResponse {
 
 export function searchMessages(query: string): Promise<SearchResponse> {
   return request<SearchResponse>(`/api/search?q=${encodeURIComponent(query)}`);
+}
+
+export function fetchConversationMedia(convId: string, cursor?: string): Promise<MessagesResponse> {
+  const params = new URLSearchParams();
+  if (cursor) params.set('cursor', cursor);
+  const qs = params.toString();
+  return request<MessagesResponse>(`/api/conversations/${convId}/media${qs ? `?${qs}` : ''}`);
 }

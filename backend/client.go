@@ -290,16 +290,36 @@ func (c *GMClient) loadSession() (*SessionData, error) {
 	return &sess, nil
 }
 
-// ListConversations fetches conversations from libgm and caches them.
+// ListConversations returns conversations, serving from cache first with a
+// background refresh from the server when connected.
 func (c *GMClient) ListConversations(count int, folder string) ([]ConversationResponse, error) {
 	cli := c.GetClient()
 	if cli == nil {
-		// Fall back to cached data
+		return c.db.GetConversations(count)
+	}
+
+	// For inbox requests, serve from cache if available and refresh in background
+	if folder == "" || folder == "inbox" {
+		cached, err := c.db.GetConversations(count)
+		if err == nil && len(cached) > 0 {
+			go c.backgroundRefreshConversations(count, folder)
+			return cached, nil
+		}
+	}
+
+	// No cache or non-inbox folder — fetch synchronously
+	return c.fetchConversationsFromServer(count, folder)
+}
+
+// fetchConversationsFromServer fetches conversations from libgm and caches them.
+func (c *GMClient) fetchConversationsFromServer(count int, folder string) ([]ConversationResponse, error) {
+	cli := c.GetClient()
+	if cli == nil {
 		return c.db.GetConversations(count)
 	}
 
 	f := gmproto.ListConversationsRequest_INBOX
-	if folder == "archive" {
+	if folder == "archive" || folder == "archived" {
 		f = gmproto.ListConversationsRequest_ARCHIVE
 	}
 
@@ -325,8 +345,69 @@ func (c *GMClient) ListConversations(count int, folder string) ([]ConversationRe
 	return convs, nil
 }
 
-// FetchMessages fetches messages for a conversation.
+// backgroundRefreshConversations fetches fresh conversations from the server
+// and broadcasts updates via WebSocket.
+func (c *GMClient) backgroundRefreshConversations(count int, folder string) {
+	cli := c.GetClient()
+	if cli == nil {
+		return
+	}
+
+	f := gmproto.ListConversationsRequest_INBOX
+	if folder == "archive" || folder == "archived" {
+		f = gmproto.ListConversationsRequest_ARCHIVE
+	}
+
+	resp, err := cli.ListConversations(count, f)
+	if err != nil {
+		c.logger.Warn().Err(err).Msg("Background conversation refresh failed")
+		return
+	}
+
+	for _, conv := range resp.GetConversations() {
+		c.cacheConvMeta(conv)
+		cr := ConvertConversation(conv)
+		if err := c.db.SaveConversation(cr); err != nil {
+			c.logger.Warn().Err(err).Str("conv_id", cr.ID).Msg("Failed to save conversation")
+		}
+		c.hub.BroadcastConversationUpdate(cr)
+	}
+
+	c.logger.Debug().Msg("Background conversation refresh complete")
+}
+
+// FetchMessages returns messages for a conversation, serving from cache first
+// on initial loads (no cursor) with a background refresh from the server.
 func (c *GMClient) FetchMessages(conversationID string, count int, cursor string) ([]MessageResponse, string, error) {
+	cli := c.GetClient()
+	if cli == nil {
+		return c.db.GetMessages(conversationID, count, cursor)
+	}
+
+	// For initial loads (no cursor), serve from cache if available and refresh in background
+	if cursor == "" {
+		cached, cachedCursor, err := c.db.GetMessages(conversationID, count, "")
+		if err == nil && len(cached) > 0 {
+			go c.backgroundRefreshMessages(conversationID, count, cached)
+			return cached, cachedCursor, nil
+		}
+	}
+
+	// No cache, or paginating with cursor — fetch synchronously
+	return c.fetchMessagesFromServer(conversationID, count, cursor)
+}
+
+// FetchMessagesFresh always fetches from the server (used by GetConversationMedia).
+func (c *GMClient) FetchMessagesFresh(conversationID string, count int, cursor string) ([]MessageResponse, string, error) {
+	cli := c.GetClient()
+	if cli == nil {
+		return c.db.GetMessages(conversationID, count, cursor)
+	}
+	return c.fetchMessagesFromServer(conversationID, count, cursor)
+}
+
+// fetchMessagesFromServer fetches messages from libgm and caches them.
+func (c *GMClient) fetchMessagesFromServer(conversationID string, count int, cursor string) ([]MessageResponse, string, error) {
 	cli := c.GetClient()
 	if cli == nil {
 		return c.db.GetMessages(conversationID, count, cursor)
@@ -369,6 +450,40 @@ func (c *GMClient) FetchMessages(conversationID string, count int, cursor string
 	}
 
 	return msgs, nextCursor, nil
+}
+
+// backgroundRefreshMessages fetches fresh messages from the server and
+// broadcasts any new messages via WebSocket.
+func (c *GMClient) backgroundRefreshMessages(conversationID string, count int, cachedMsgs []MessageResponse) {
+	cli := c.GetClient()
+	if cli == nil {
+		return
+	}
+
+	resp, err := cli.FetchMessages(conversationID, int64(count), nil)
+	if err != nil {
+		c.logger.Warn().Err(err).Msg("Background message refresh failed")
+		return
+	}
+
+	// Build set of cached message IDs
+	cachedIDs := make(map[string]bool, len(cachedMsgs))
+	for _, m := range cachedMsgs {
+		cachedIDs[m.ID] = true
+	}
+
+	for _, msg := range resp.GetMessages() {
+		mr := ConvertMessage(msg)
+		if err := c.db.SaveMessage(mr); err != nil {
+			c.logger.Warn().Err(err).Str("msg_id", mr.ID).Msg("Failed to save message")
+		}
+		if !cachedIDs[mr.ID] {
+			// New message not in cache — notify frontend
+			c.hub.BroadcastNewMessage(mr)
+		}
+	}
+
+	c.logger.Debug().Str("conversation", conversationID).Msg("Background message refresh complete")
 }
 
 // SendMessage sends a text message.

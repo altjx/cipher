@@ -2,6 +2,7 @@ import {
   app,
   BrowserWindow,
   Menu,
+  nativeImage,
   Notification,
   ipcMain,
   shell,
@@ -24,6 +25,15 @@ const STATUS_POLL_INTERVAL_MS = 500;
 const STATUS_POLL_TIMEOUT_MS = 15_000;
 
 const isDev = !app.isPackaged;
+
+// Set app name and dock icon for dev mode
+app.setName('Android Messages');
+if (isDev && process.platform === 'darwin') {
+  const iconPath = path.join(__dirname, '..', 'assets', 'icon.png');
+  if (fs.existsSync(iconPath)) {
+    app.dock?.setIcon(nativeImage.createFromPath(iconPath));
+  }
+}
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -303,12 +313,18 @@ function updateDockBadge(): void {
 // ─── Window ──────────────────────────────────────────────────────────────────
 
 function createWindow(): void {
+  const iconPath = isDev
+    ? path.join(__dirname, '..', 'assets', 'icon.png')
+    : path.join(process.resourcesPath, 'icon.png');
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 800,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
+    title: 'Android Messages',
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

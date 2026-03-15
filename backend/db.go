@@ -432,6 +432,86 @@ func (d *Database) GetMessageByID(messageID string) (*MessageResponse, error) {
 	return &m, nil
 }
 
+func (d *Database) GetMediaMessages(conversationID string, limit int, cursor string) ([]MessageResponse, string, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 30
+	}
+
+	var rows *sql.Rows
+	var err error
+
+	if cursor != "" {
+		rows, err = d.db.Query(`
+			SELECT id, conversation_id, sender_id, sender_name, sender_is_me, text, timestamp, status, reactions_json, media_json, reply_to_json
+			FROM messages
+			WHERE conversation_id = ? AND media_json != '[]' AND timestamp < ?
+			ORDER BY timestamp DESC
+			LIMIT ?
+		`, conversationID, cursor, limit)
+	} else {
+		rows, err = d.db.Query(`
+			SELECT id, conversation_id, sender_id, sender_name, sender_is_me, text, timestamp, status, reactions_json, media_json, reply_to_json
+			FROM messages
+			WHERE conversation_id = ? AND media_json != '[]'
+			ORDER BY timestamp DESC
+			LIMIT ?
+		`, conversationID, limit)
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var msgs []MessageResponse
+	for rows.Next() {
+		var m MessageResponse
+		var senderID, senderName string
+		var senderIsMe bool
+		var reactionsJSON, mediaJSON string
+		var replyJSON *string
+
+		if err := rows.Scan(&m.ID, &m.ConversationID, &senderID, &senderName, &senderIsMe,
+			&m.Text, &m.Timestamp, &m.Status, &reactionsJSON, &mediaJSON, &replyJSON); err != nil {
+			return nil, "", err
+		}
+
+		m.Sender = &SenderResponse{
+			ID:   senderID,
+			Name: senderName,
+			IsMe: senderIsMe,
+		}
+
+		if err := json.Unmarshal([]byte(reactionsJSON), &m.Reactions); err != nil {
+			m.Reactions = []ReactionResponse{}
+		}
+		if err := json.Unmarshal([]byte(mediaJSON), &m.Media); err != nil {
+			m.Media = []MediaResponse{}
+		}
+		if replyJSON != nil {
+			var reply ReplyToResponse
+			if err := json.Unmarshal([]byte(*replyJSON), &reply); err == nil {
+				m.ReplyTo = &reply
+			}
+		}
+
+		msgs = append(msgs, m)
+	}
+
+	if msgs == nil {
+		msgs = []MessageResponse{}
+	}
+
+	nextCursor := ""
+	if len(msgs) == limit {
+		nextCursor = fmt.Sprintf("%d", msgs[len(msgs)-1].Timestamp)
+	}
+
+	return msgs, nextCursor, nil
+}
+
 func (d *Database) SearchMessages(query string, limit int) ([]SearchResult, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
