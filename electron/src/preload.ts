@@ -33,4 +33,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       callback(conversationId),
     );
   },
+
+  /** Open an image URL in the native Preview app (macOS) or default viewer */
+  openImageInPreview: (imageUrl: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('open-image-in-preview', imageUrl),
 });
