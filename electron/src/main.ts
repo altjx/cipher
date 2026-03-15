@@ -230,6 +230,10 @@ function handleWsEvent(event: WsEvent): void {
     case 'new_message':
       handleNewMessage(event.data);
       break;
+    case 'messages_refreshed':
+      // Background refresh completed — forward for UI update, no notification
+      mainWindow?.webContents.send('ws-event', event);
+      break;
     case 'message_update':
       // Reaction/edit updates — forward to renderer only, no notification
       mainWindow?.webContents.send('ws-event', event);

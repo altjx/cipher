@@ -452,8 +452,10 @@ func (c *GMClient) fetchMessagesFromServer(conversationID string, count int, cur
 	return msgs, nextCursor, nil
 }
 
-// backgroundRefreshMessages fetches fresh messages from the server and
-// broadcasts any new messages via WebSocket.
+// backgroundRefreshMessages fetches fresh messages from the server, saves them
+// to the DB cache, and broadcasts a single messages_refreshed event so the
+// frontend can replace its stale view. Only truly new messages (< 2 min old)
+// are broadcast as new_message to trigger notifications.
 func (c *GMClient) backgroundRefreshMessages(conversationID string, count int, cachedMsgs []MessageResponse) {
 	cli := c.GetClient()
 	if cli == nil {
@@ -466,11 +468,14 @@ func (c *GMClient) backgroundRefreshMessages(conversationID string, count int, c
 		return
 	}
 
-	// Build set of cached message IDs
+	// Build set of cached message IDs for detecting new messages
 	cachedIDs := make(map[string]bool, len(cachedMsgs))
 	for _, m := range cachedMsgs {
 		cachedIDs[m.ID] = true
 	}
+
+	recentThreshold := time.Now().Add(-2 * time.Minute).UnixMilli()
+	hasNewMessages := false
 
 	for _, msg := range resp.GetMessages() {
 		mr := ConvertMessage(msg)
@@ -478,8 +483,20 @@ func (c *GMClient) backgroundRefreshMessages(conversationID string, count int, c
 			c.logger.Warn().Err(err).Str("msg_id", mr.ID).Msg("Failed to save message")
 		}
 		if !cachedIDs[mr.ID] {
-			// New message not in cache — notify frontend
-			c.hub.BroadcastNewMessage(mr)
+			hasNewMessages = true
+			// Only broadcast as new_message (triggers notifications) if truly recent
+			if mr.Timestamp >= recentThreshold {
+				c.hub.BroadcastNewMessage(mr)
+			}
+		}
+	}
+
+	// If any messages were added, send the complete refreshed list from the DB
+	// so the frontend can replace its stale view in one shot.
+	if hasNewMessages {
+		refreshed, refreshedCursor, err := c.db.GetMessages(conversationID, count, "")
+		if err == nil {
+			c.hub.BroadcastMessagesRefreshed(conversationID, refreshed, refreshedCursor)
 		}
 	}
 
