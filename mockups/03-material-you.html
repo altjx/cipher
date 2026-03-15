@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mockup 3 — Material You Inspired</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Inter:wght@400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --primary: #1b72c0;
+    --primary-container: #d3e4ff;
+    --on-primary-container: #001c39;
+    --secondary: #545f70;
+    --secondary-container: #d8e3f8;
+    --surface: #f8f9ff;
+    --surface-variant: #e0e2ec;
+    --surface-container: #ecedf4;
+    --surface-container-high: #e6e7ef;
+    --surface-container-highest: #e0e1e9;
+    --on-surface: #1a1c20;
+    --on-surface-variant: #44474e;
+    --outline: #74777f;
+    --outline-variant: #c4c6d0;
+    --inverse-surface: #2f3036;
+    --inverse-on-surface: #f1f0f7;
+    --sent-bg: #1b72c0;
+    --sent-text: #ffffff;
+  }
+
+  body {
+    font-family: 'Inter', 'Google Sans', -apple-system, sans-serif;
+    height: 100vh; background: var(--surface); color: var(--on-surface);
+    overflow: hidden;
+  }
+
+  .app { display: flex; height: 100vh; }
+
+  /* Sidebar */
+  .sidebar {
+    width: 360px; background: var(--surface);
+    display: flex; flex-direction: column;
+  }
+
+  .sidebar-header {
+    padding: 16px 16px 8px;
+  }
+  .sidebar-title {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 8px 16px;
+  }
+  .sidebar-title h1 {
+    font-size: 22px; font-weight: 500; color: var(--on-surface);
+  }
+  .sidebar-title .fab {
+    width: 56px; height: 56px; border-radius: 16px; border: none;
+    background: var(--primary-container); color: var(--on-primary-container);
+    font-size: 22px; cursor: pointer; display: flex;
+    align-items: center; justify-content: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08);
+    transition: all 0.2s;
+  }
+  .sidebar-title .fab:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.16);
+  }
+
+  /* Material search bar */
+  .search-bar {
+    margin: 0 16px 12px; position: relative;
+  }
+  .search-bar input {
+    width: 100%; padding: 14px 16px 14px 48px;
+    border-radius: 28px; border: none;
+    background: var(--surface-container-high);
+    color: var(--on-surface); font-size: 14px; outline: none;
+  }
+  .search-bar input::placeholder { color: var(--on-surface-variant); }
+  .search-bar .search-icon {
+    position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
+    color: var(--on-surface-variant); font-size: 18px;
+  }
+  .search-bar .avatar-small {
+    position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+    width: 30px; height: 30px; border-radius: 50%;
+    background: var(--primary); color: white;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600;
+  }
+
+  /* Filter chips */
+  .filter-chips {
+    display: flex; gap: 8px; padding: 4px 16px 12px; overflow-x: auto;
+  }
+  .chip {
+    padding: 6px 16px; border-radius: 8px; border: 1px solid var(--outline-variant);
+    background: transparent; color: var(--on-surface-variant);
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    white-space: nowrap; transition: all 0.15s;
+  }
+  .chip.active {
+    background: var(--secondary-container); color: var(--on-primary-container);
+    border-color: transparent;
+  }
+  .chip:hover { background: var(--surface-container-high); }
+
+  .conversations {
+    flex: 1; overflow-y: auto;
+  }
+  .conversations::-webkit-scrollbar { width: 0; }
+
+  .convo-item {
+    display: flex; align-items: center; gap: 16px;
+    padding: 12px 24px; cursor: pointer; transition: background 0.15s;
+    position: relative;
+  }
+  .convo-item:hover { background: var(--surface-container); }
+  .convo-item.active { background: var(--secondary-container); border-radius: 0 28px 28px 0; margin-right: 16px; }
+
+  .avatar {
+    width: 48px; height: 48px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 600; font-size: 16px; color: white; flex-shrink: 0;
+  }
+
+  .convo-info { flex: 1; min-width: 0; }
+  .convo-top { display: flex; justify-content: space-between; margin-bottom: 4px; }
+  .convo-name { font-size: 14px; font-weight: 500; }
+  .convo-time { font-size: 12px; color: var(--on-surface-variant); }
+  .convo-preview {
+    font-size: 13px; color: var(--on-surface-variant);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .unread .convo-name { font-weight: 700; }
+  .unread .convo-preview { color: var(--on-surface); font-weight: 500; }
+
+  /* Main Chat */
+  .main {
+    flex: 1; display: flex; flex-direction: column;
+    background: var(--surface-container);
+    margin: 12px 12px 12px 0; border-radius: 28px;
+    overflow: hidden;
+  }
+
+  .chat-header {
+    padding: 16px 24px; display: flex; align-items: center; gap: 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--surface-variant);
+    border-radius: 28px 28px 0 0;
+  }
+  .back-btn {
+    display: none; width: 40px; height: 40px; border-radius: 50%;
+    border: none; background: transparent; color: var(--on-surface);
+    font-size: 20px; cursor: pointer;
+  }
+  .chat-header .avatar { width: 40px; height: 40px; font-size: 14px; }
+  .chat-header-info h2 { font-size: 16px; font-weight: 500; }
+  .chat-header-info span { font-size: 12px; color: var(--on-surface-variant); }
+  .chat-actions { margin-left: auto; display: flex; gap: 4px; }
+  .chat-actions button {
+    width: 40px; height: 40px; border-radius: 50%; border: none;
+    background: transparent; color: var(--on-surface-variant);
+    cursor: pointer; font-size: 18px; transition: background 0.15s;
+  }
+  .chat-actions button:hover { background: var(--surface-variant); }
+
+  .messages {
+    flex: 1; overflow-y: auto; padding: 16px 24px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .messages::-webkit-scrollbar { width: 0; }
+
+  .date-chip {
+    text-align: center; margin: 12px 0;
+  }
+  .date-chip span {
+    font-size: 12px; font-weight: 500; color: var(--on-surface-variant);
+    background: var(--surface); padding: 6px 16px; border-radius: 8px;
+  }
+
+  .msg { display: flex; flex-direction: column; max-width: 70%; }
+  .msg.sent { align-self: flex-end; align-items: flex-end; }
+  .msg.received { align-self: flex-start; }
+
+  .msg-bubble {
+    padding: 12px 16px; font-size: 14px; line-height: 1.5;
+  }
+  .msg.sent .msg-bubble {
+    background: var(--sent-bg); color: var(--sent-text);
+    border-radius: 20px 20px 4px 20px;
+  }
+  .msg.received .msg-bubble {
+    background: var(--surface); color: var(--on-surface);
+    border-radius: 20px 20px 20px 4px;
+  }
+
+  .msg-meta {
+    font-size: 11px; color: var(--on-surface-variant); margin-top: 2px; padding: 0 8px;
+  }
+
+  .msg-reaction {
+    display: inline-flex; gap: 2px; margin-top: 2px;
+  }
+  .msg-reaction span {
+    background: var(--surface); border-radius: 12px;
+    padding: 2px 8px; font-size: 13px;
+    border: 1px solid var(--outline-variant);
+  }
+
+  /* Suggested replies */
+  .suggestions {
+    display: flex; gap: 8px; padding: 8px 24px;
+    overflow-x: auto;
+  }
+  .suggestion-chip {
+    padding: 8px 16px; border-radius: 20px;
+    border: 1px solid var(--outline-variant);
+    background: var(--surface); color: var(--primary);
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    white-space: nowrap; transition: all 0.15s;
+  }
+  .suggestion-chip:hover {
+    background: var(--primary-container);
+    border-color: var(--primary);
+  }
+
+  /* Input */
+  .input-area {
+    padding: 8px 16px 16px; display: flex; align-items: flex-end; gap: 8px;
+  }
+  .input-row {
+    flex: 1; display: flex; align-items: flex-end;
+    background: var(--surface); border-radius: 28px;
+    padding: 4px 8px 4px 4px;
+  }
+  .input-row button {
+    width: 40px; height: 40px; border-radius: 50%; border: none;
+    background: transparent; color: var(--on-surface-variant);
+    cursor: pointer; font-size: 18px; flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .input-row button:hover { background: var(--surface-variant); }
+  .input-row textarea {
+    flex: 1; padding: 10px 8px; border: none; background: transparent;
+    color: var(--on-surface); font-size: 14px; font-family: inherit;
+    outline: none; resize: none; min-height: 40px;
+  }
+  .input-row textarea::placeholder { color: var(--outline); }
+
+  .send-fab {
+    width: 48px; height: 48px; border-radius: 50%; border: none;
+    background: var(--primary); color: white;
+    font-size: 18px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    transition: all 0.15s; flex-shrink: 0;
+  }
+  .send-fab:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+</style>
+</head>
+<body>
+  <div class="app">
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-title">
+          <h1>Messages</h1>
+          <button class="fab">&#10011;</button>
+        </div>
+
+        <div class="search-bar">
+          <span class="search-icon">&#128269;</span>
+          <input type="text" placeholder="Search conversations">
+          <div class="avatar-small">A</div>
+        </div>
+
+        <div class="filter-chips">
+          <button class="chip active">All</button>
+          <button class="chip">Unread</button>
+          <button class="chip">Groups</button>
+          <button class="chip">Personal</button>
+        </div>
+      </div>
+
+      <div class="conversations">
+        <div class="convo-item active">
+          <div class="avatar" style="background:#1b72c0;">AJ</div>
+          <div class="convo-info">
+            <div class="convo-top">
+              <span class="convo-name">Alex Johnson</span>
+              <span class="convo-time">2:34 PM</span>
+            </div>
+            <div class="convo-preview">Sounds great! Let me check the repo...</div>
+          </div>
+        </div>
+        <div class="convo-item unread">
+          <div class="avatar" style="background:#7c3aed;">SM</div>
+          <div class="convo-info">
+            <div class="convo-top">
+              <span class="convo-name">Sarah Miller</span>
+              <span class="convo-time">1:15 PM</span>
+            </div>
+            <div class="convo-preview">Can you send me the design files?</div>
+          </div>
+        </div>
+        <div class="convo-item">
+          <div class="avatar" style="background:#e67700;">TD</div>
+          <div class="convo-info">
+            <div class="convo-top">
+              <span class="convo-name">Team Dev</span>
+              <span class="convo-time">12:02 PM</span>
+            </div>
+            <div class="convo-preview">Mike: The deployment is complete &#10003;</div>
+          </div>
+        </div>
+        <div class="convo-item">
+          <div class="avatar" style="background:#d63384;">RL</div>
+          <div class="convo-info">
+            <div class="convo-top">
+              <span class="convo-name">Rachel Lee</span>
+              <span class="convo-time">Yesterday</span>
+            </div>
+            <div class="convo-preview">Thanks for the update!</div>
+          </div>
+        </div>
+        <div class="convo-item unread">
+          <div class="avatar" style="background:#16a34a;">DW</div>
+          <div class="convo-info">
+            <div class="convo-top">
+              <span class="convo-name">Dan Wilson</span>
+              <span class="convo-time">Yesterday</span>
+            </div>
+            <div class="convo-preview">Let's sync up tomorrow morning</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="main">
+      <div class="chat-header">
+        <div class="avatar" style="background:#1b72c0; font-size:13px;">AJ</div>
+        <div class="chat-header-info">
+          <h2>Alex Johnson</h2>
+          <span>Online &bull; RCS</span>
+        </div>
+        <div class="chat-actions">
+          <button>&#128222;</button>
+          <button>&#128249;</button>
+          <button>&#8942;</button>
+        </div>
+      </div>
+
+      <div class="messages">
+        <div class="date-chip"><span>Today</span></div>
+
+        <div class="msg received">
+          <div class="msg-bubble">Hey! Have you had a chance to look at the new PR?</div>
+          <div class="msg-meta">2:20 PM</div>
+        </div>
+
+        <div class="msg sent">
+          <div class="msg-bubble">Yeah, I reviewed it this morning. Looks solid overall!</div>
+          <div class="msg-reaction"><span>&#128077; 1</span></div>
+          <div class="msg-meta">2:22 PM &bull; Read</div>
+        </div>
+
+        <div class="msg received">
+          <div class="msg-bubble">Awesome! Any concerns about the auth middleware changes?</div>
+          <div class="msg-meta">2:25 PM</div>
+        </div>
+
+        <div class="msg sent">
+          <div class="msg-bubble">Just a minor thing with the token refresh logic. I left a comment on line 47. Otherwise LGTM.</div>
+          <div class="msg-meta">2:30 PM &bull; Read</div>
+        </div>
+
+        <div class="msg received">
+          <div class="msg-bubble">Sounds great! Let me check the repo and push a fix real quick.</div>
+          <div class="msg-meta">2:34 PM</div>
+        </div>
+      </div>
+
+      <div class="suggestions">
+        <button class="suggestion-chip">Sounds good!</button>
+        <button class="suggestion-chip">Let me know when it's done</button>
+        <button class="suggestion-chip">&#128077;</button>
+      </div>
+
+      <div class="input-area">
+        <div class="input-row">
+          <button>&#128513;</button>
+          <textarea rows="1" placeholder="Text message"></textarea>
+          <button>&#128206;</button>
+          <button>&#128247;</button>
+        </div>
+        <button class="send-fab">&#10148;</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

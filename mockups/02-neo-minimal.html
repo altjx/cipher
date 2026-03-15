@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mockup 2 — Neo Minimal</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #fafafa;
+    --surface: #ffffff;
+    --surface-hover: #f5f5f5;
+    --border: #e8e8e8;
+    --text: #1a1a1a;
+    --text-secondary: #737373;
+    --text-muted: #a3a3a3;
+    --accent: #1a1a1a;
+    --accent-soft: #f0f0f0;
+    --sent-bg: #1a1a1a;
+    --sent-text: #ffffff;
+    --received-bg: #f0f0f0;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    height: 100vh; background: var(--bg); color: var(--text);
+    overflow: hidden;
+  }
+
+  .app {
+    display: flex; height: 100vh;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    width: 360px; background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+  }
+
+  .sidebar-header {
+    padding: 28px 24px 20px;
+  }
+  .sidebar-header h1 {
+    font-size: 28px; font-weight: 700; letter-spacing: -0.5px;
+    margin-bottom: 20px;
+  }
+  .search-box {
+    position: relative;
+  }
+  .search-box input {
+    width: 100%; padding: 11px 16px 11px 42px;
+    border-radius: 12px; border: 1.5px solid var(--border);
+    background: var(--bg); font-size: 14px; color: var(--text);
+    outline: none; transition: all 0.15s;
+  }
+  .search-box input:focus {
+    border-color: var(--accent);
+  }
+  .search-box input::placeholder { color: var(--text-muted); }
+  .search-icon {
+    position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+    color: var(--text-muted); font-size: 15px;
+  }
+
+  .section-label {
+    padding: 16px 24px 8px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--text-muted);
+  }
+
+  .conversations {
+    flex: 1; overflow-y: auto; padding: 0 8px;
+  }
+  .conversations::-webkit-scrollbar { width: 0; }
+
+  .convo-item {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 16px; border-radius: 14px; cursor: pointer;
+    transition: background 0.15s;
+  }
+  .convo-item:hover { background: var(--surface-hover); }
+  .convo-item.active { background: var(--accent-soft); }
+
+  .avatar {
+    width: 46px; height: 46px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 600; font-size: 15px; color: white; flex-shrink: 0;
+    position: relative;
+  }
+  .avatar.online::after {
+    content: ''; position: absolute; bottom: 1px; right: 1px;
+    width: 11px; height: 11px; border-radius: 50%;
+    background: #22c55e; border: 2.5px solid var(--surface);
+  }
+
+  .convo-info { flex: 1; min-width: 0; }
+  .convo-top {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 4px;
+  }
+  .convo-name { font-size: 14px; font-weight: 600; }
+  .convo-time { font-size: 11px; color: var(--text-muted); }
+  .convo-preview {
+    font-size: 13px; color: var(--text-secondary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .unread-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--accent); flex-shrink: 0;
+  }
+
+  /* Main Chat */
+  .main {
+    flex: 1; display: flex; flex-direction: column; background: var(--bg);
+  }
+
+  .chat-header {
+    padding: 18px 28px; display: flex; align-items: center; gap: 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .chat-header .avatar { width: 38px; height: 38px; font-size: 13px; }
+  .chat-name { font-size: 15px; font-weight: 600; }
+  .chat-status { font-size: 12px; color: var(--text-muted); }
+  .chat-actions { margin-left: auto; display: flex; gap: 4px; }
+  .chat-actions button {
+    width: 36px; height: 36px; border-radius: 10px; border: none;
+    background: transparent; color: var(--text-secondary);
+    cursor: pointer; font-size: 16px; transition: all 0.15s;
+  }
+  .chat-actions button:hover { background: var(--accent-soft); color: var(--text); }
+
+  .messages {
+    flex: 1; overflow-y: auto; padding: 28px 28px 16px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .messages::-webkit-scrollbar { width: 0; }
+
+  .date-sep {
+    text-align: center; margin: 20px 0 12px;
+  }
+  .date-sep span {
+    font-size: 11px; font-weight: 500; color: var(--text-muted);
+    background: var(--surface); padding: 5px 16px; border-radius: 20px;
+    border: 1px solid var(--border);
+  }
+
+  .msg { display: flex; flex-direction: column; max-width: 460px; }
+  .msg.sent { align-self: flex-end; align-items: flex-end; }
+  .msg.received { align-self: flex-start; }
+
+  .msg-bubble {
+    padding: 12px 18px; font-size: 14px; line-height: 1.55;
+  }
+  .msg.sent .msg-bubble {
+    background: var(--sent-bg); color: var(--sent-text);
+    border-radius: 20px 20px 6px 20px;
+  }
+  .msg.received .msg-bubble {
+    background: var(--received-bg); color: var(--text);
+    border-radius: 20px 20px 20px 6px;
+  }
+
+  .msg-meta {
+    font-size: 10px; color: var(--text-muted); margin-top: 4px; padding: 0 6px;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .read-receipt { color: var(--accent); }
+
+  .msg-reaction-bar {
+    display: flex; gap: 4px; margin-top: 4px;
+  }
+  .reaction-chip {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 20px; padding: 2px 8px; font-size: 13px;
+    display: flex; align-items: center; gap: 3px;
+  }
+  .reaction-chip .count { font-size: 11px; color: var(--text-secondary); }
+
+  /* Image message */
+  .msg-image {
+    border-radius: 16px; overflow: hidden; margin-bottom: 4px;
+    max-width: 280px;
+  }
+  .msg-image img { width: 100%; display: block; }
+  .msg-image-placeholder {
+    width: 280px; height: 180px;
+    background: linear-gradient(135deg, #e8e8e8, #d4d4d4);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted); font-size: 32px;
+  }
+
+  /* Input */
+  .input-area {
+    padding: 16px 28px 24px; display: flex; align-items: flex-end; gap: 12px;
+    background: var(--surface); border-top: 1px solid var(--border);
+  }
+
+  .input-actions {
+    display: flex; gap: 2px;
+  }
+  .input-actions button {
+    width: 40px; height: 40px; border-radius: 10px; border: none;
+    background: transparent; color: var(--text-muted); cursor: pointer;
+    font-size: 18px; transition: all 0.15s;
+  }
+  .input-actions button:hover { background: var(--accent-soft); color: var(--text); }
+
+  .input-field {
+    flex: 1;
+  }
+  .input-field textarea {
+    width: 100%; padding: 10px 16px; border-radius: 14px;
+    border: 1.5px solid var(--border); background: var(--bg);
+    color: var(--text); font-size: 14px; font-family: inherit;
+    outline: none; resize: none; min-height: 42px;
+    transition: border 0.15s;
+  }
+  .input-field textarea:focus { border-color: var(--accent); }
+  .input-field textarea::placeholder { color: var(--text-muted); }
+
+  .send-btn {
+    width: 42px; height: 42px; border-radius: 50%; border: none;
+    background: var(--accent); color: white; cursor: pointer;
+    font-size: 16px; display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s; flex-shrink: 0;
+  }
+  .send-btn:hover { transform: scale(1.05); }
+</style>
+</head>
+<body>
+  <div class="app">
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <h1>Messages</h1>
+        <div class="search-box">
+          <span class="search-icon">&#128269;</span>
+          <input type="text" placeholder="Search...">
+        </div>
+      </div>
+
+      <div class="section-label">Recent</div>
+
+      <div class="conversations">
+        <div class="convo-item active">
+          <div class="avatar online" style="background:#1a1a1a;">AJ</div>
+          <div class="convo-info">
+            <div class="convo-top">
+              <span class="convo-name">Alex Johnson</span>
+              <span class="convo-time">2:34 PM</span>
+            </div>
+            <div class="convo-preview">Sounds great! Let me check the repo...</div>
+          </div>
+        </div>
+        <div class="convo-item">
+          <div class="avatar" style="background:#6366f1;">SM</div>
+          <div class="convo-info">
+            <div class="convo-top">
+              <span class="convo-name">Sarah Miller</span>
+              <span class="convo-time">1:15 PM</span>
+            </div>
+            <div class="convo-preview">Can you send me the design files?</div>
+          </div>
+          <div class="unread-dot"></div>
+        </div>
+        <div class="convo-item">
+          <div class="avatar" style="background:#f59e0b;">TD</div>
+          <div class="convo-info">
+            <div class="convo-top">
+              <span class="convo-name">Team Dev</span>
+              <span class="convo-time">12:02 PM</span>
+            </div>
+            <div class="convo-preview">Mike: The deployment is complete</div>
+          </div>
+        </div>
+        <div class="convo-item">
+          <div class="avatar" style="background:#ec4899;">RL</div>
+          <div class="convo-info">
+            <div class="convo-top">
+              <span class="convo-name">Rachel Lee</span>
+              <span class="convo-time">Yesterday</span>
+            </div>
+            <div class="convo-preview">Thanks for the update!</div>
+          </div>
+        </div>
+        <div class="convo-item">
+          <div class="avatar online" style="background:#22c55e;">DW</div>
+          <div class="convo-info">
+            <div class="convo-top">
+              <span class="convo-name">Dan Wilson</span>
+              <span class="convo-time">Yesterday</span>
+            </div>
+            <div class="convo-preview">Let's sync up tomorrow morning</div>
+          </div>
+          <div class="unread-dot"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="main">
+      <div class="chat-header">
+        <div class="avatar online" style="background:#1a1a1a; font-size:12px;">AJ</div>
+        <div>
+          <div class="chat-name">Alex Johnson</div>
+          <div class="chat-status">Online</div>
+        </div>
+        <div class="chat-actions">
+          <button>&#128222;</button>
+          <button>&#128249;</button>
+          <button>&#128204;</button>
+          <button>&#8942;</button>
+        </div>
+      </div>
+
+      <div class="messages">
+        <div class="date-sep"><span>Today</span></div>
+
+        <div class="msg received">
+          <div class="msg-bubble">Hey! Have you had a chance to look at the new PR?</div>
+          <div class="msg-meta">2:20 PM</div>
+        </div>
+
+        <div class="msg sent">
+          <div class="msg-bubble">Yeah, I reviewed it this morning. Looks solid overall!</div>
+          <div class="msg-reaction-bar">
+            <div class="reaction-chip">&#128077; <span class="count">1</span></div>
+          </div>
+          <div class="msg-meta"><span class="read-receipt">&#10003;&#10003;</span> 2:22 PM</div>
+        </div>
+
+        <div class="msg received">
+          <div class="msg-image">
+            <div class="msg-image-placeholder">&#128444;</div>
+          </div>
+          <div class="msg-bubble">Here's the screenshot of the new auth flow</div>
+          <div class="msg-meta">2:24 PM</div>
+        </div>
+
+        <div class="msg sent">
+          <div class="msg-bubble">Clean! Just a minor thing with the token refresh logic. I left a comment on line 47.</div>
+          <div class="msg-meta"><span class="read-receipt">&#10003;&#10003;</span> 2:30 PM</div>
+        </div>
+
+        <div class="msg received">
+          <div class="msg-bubble">Sounds great! Let me check the repo and push a fix real quick.</div>
+          <div class="msg-meta">2:34 PM</div>
+        </div>
+      </div>
+
+      <div class="input-area">
+        <div class="input-actions">
+          <button>&#128206;</button>
+          <button>&#128247;</button>
+        </div>
+        <div class="input-field">
+          <textarea rows="1" placeholder="Type a message..."></textarea>
+        </div>
+        <button class="send-btn">&#10148;</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
