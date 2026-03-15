@@ -1,16 +1,16 @@
 {
-  "name": "google-messages-client",
+  "name": "android-messages",
   "version": "1.0.0",
-  "description": "Desktop client for Google Messages",
+  "description": "Desktop client for Android Messages",
   "main": "dist/main.js",
   "scripts": {
-    "dev": "tsc && electron dist/main.js",
-    "build": "tsc && electron-builder",
+    "dev": "tsc && bash scripts/patch-electron-name.sh && open -W \"node_modules/electron/dist/Android Messages.app\" --args \"$PWD/dist/main.js\"",
+    "build": "tsc && electron-builder && cp -R \"dist/mac-arm64/Android Messages.app\" /Applications/",
     "typecheck": "tsc --noEmit"
   },
   "build": {
-    "appId": "com.google-messages-client",
-    "productName": "Messages",
+    "appId": "com.android-messages",
+    "productName": "Android Messages",
     "mac": {
       "category": "public.app-category.social-networking",
       "icon": "assets/icon.icns",

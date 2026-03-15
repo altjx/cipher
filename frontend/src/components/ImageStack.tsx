@@ -34,7 +34,7 @@ export default function ImageStack({ messages, isMe, showSender, onImageClick }:
   return (
     <div className={`flex flex-col ${alignment} mb-1`}>
       {!isMe && showSender && firstMsg.sender.name && (
-        <span className="text-xs text-gray-400 ml-1 mb-0.5">{firstMsg.sender.name}</span>
+        <span className="text-xs text-[var(--text-2)] ml-1 mb-0.5">{firstMsg.sender.name}</span>
       )}
 
       <div
@@ -43,15 +43,13 @@ export default function ImageStack({ messages, isMe, showSender, onImageClick }:
         onMouseLeave={() => setHovered(false)}
         onClick={() => onImageClick(frontUrl)}
         style={{
-          // Extra padding to make room for the fanned-out back cards
           paddingTop: backCards.length >= 2 ? '16px' : backCards.length === 1 ? '10px' : '0',
           paddingRight: backCards.length >= 2 ? '16px' : backCards.length === 1 ? '10px' : '0',
         }}
       >
         {/* Back cards - fanned out behind the front */}
         {backCards.map((url, idx) => {
-          // idx 0 = directly behind front, idx 1 = furthest back
-          const depth = backCards.length - idx; // 2 or 1 for first back card, 1 for second
+          const depth = backCards.length - idx;
           const rotation = depth * 5;
           const translateX = depth * 8;
           const translateY = depth * -8;
@@ -59,7 +57,7 @@ export default function ImageStack({ messages, isMe, showSender, onImageClick }:
           return (
             <div
               key={idx}
-              className="absolute rounded-xl overflow-hidden shadow-lg"
+              className="absolute rounded-[14px] overflow-hidden shadow-lg"
               style={{
                 width: '220px',
                 height: '170px',
@@ -85,7 +83,7 @@ export default function ImageStack({ messages, isMe, showSender, onImageClick }:
 
         {/* Front card */}
         <div
-          className="relative rounded-xl overflow-hidden shadow-xl transition-transform duration-300"
+          className="relative rounded-[14px] overflow-hidden shadow-xl transition-transform duration-300"
           style={{
             width: '220px',
             height: '170px',
@@ -113,7 +111,7 @@ export default function ImageStack({ messages, isMe, showSender, onImageClick }:
       </div>
 
       <div className={`flex items-center gap-1 mt-1 ${isMe ? 'justify-end mr-1' : 'justify-start ml-1'}`}>
-        <span className="text-[10px] text-gray-500">{formatTime(lastMsg.timestamp)}</span>
+        <span className="text-[10px] text-[var(--text-3)]">{formatTime(lastMsg.timestamp)}</span>
       </div>
     </div>
   );

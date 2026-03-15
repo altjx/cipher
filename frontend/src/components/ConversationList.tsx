@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search } from 'lucide-react';
+import { Search, MessageCircle } from 'lucide-react';
 import type { Conversation, WsConversationUpdate, WsTyping, SearchResult } from '../api/client';
-import { searchMessages } from '../api/client';
+import { searchMessages, fetchConversations } from '../api/client';
+import { avatarGradient } from '../utils/avatarGradient';
 
 interface ConversationListProps {
   conversations: Conversation[];
@@ -10,11 +11,19 @@ interface ConversationListProps {
   onSelectMessage: (conversationId: string, messageId: string) => void;
   onConversationsUpdate: (updater: (prev: Conversation[]) => Conversation[]) => void;
   subscribe: (eventType: 'conversation_update' | 'typing', callback: (data: unknown) => void) => () => void;
+  phoneStatus: 'connected' | 'offline' | 'reconnecting' | null;
+  wsConnected: boolean;
 }
+
+type TabType = 'all' | 'unread' | 'groups' | 'archived';
+
+const EMOJI_RE = /\p{Extended_Pictographic}/gu;
 
 function getInitials(name: string): string {
   return name
-    .split(' ')
+    .replace(EMOJI_RE, '')
+    .trim()
+    .split(/\s+/)
     .map((w) => w[0])
     .filter(Boolean)
     .slice(0, 2)
@@ -61,11 +70,15 @@ export default function ConversationList({
   onSelectMessage,
   onConversationsUpdate,
   subscribe,
+  phoneStatus,
+  wsConnected,
 }: ConversationListProps) {
   const [search, setSearch] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const [activeTab, setActiveTab] = useState<TabType>('all');
+  const [archivedConvs, setArchivedConvs] = useState<Conversation[]>([]);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   // Map of conversationId -> set of typing names
   const [typingMap, setTypingMap] = useState<Map<string, Set<string>>>(new Map());
   const typingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -138,6 +151,14 @@ export default function ConversationList({
     };
   }, [subscribe]);
 
+  // Load archived conversations when tab is switched
+  useEffect(() => {
+    if (activeTab !== 'archived') return;
+    fetchConversations(50, 'archived')
+      .then((res) => setArchivedConvs(res.conversations))
+      .catch(() => {});
+  }, [activeTab]);
+
   // Debounced message content search
   useEffect(() => {
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
@@ -172,37 +193,95 @@ export default function ConversationList({
     return tsB - tsA;
   });
 
-  // When not searching content, still filter conversations by name
-  const filtered = search && !searchResults
-    ? sorted.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()))
-    : sorted;
+  // Filter based on active tab
+  let filtered: Conversation[];
+  if (activeTab === 'archived') {
+    filtered = archivedConvs;
+  } else if (activeTab === 'unread') {
+    filtered = sorted.filter((c) => c.unread);
+  } else if (activeTab === 'groups') {
+    filtered = sorted.filter((c) => c.isGroup);
+  } else {
+    filtered = sorted;
+  }
+
+  // When searching, filter by name
+  if (search && !searchResults) {
+    filtered = filtered.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
+  }
+
+  // Status badge
+  const getStatusBadge = () => {
+    if (!wsConnected) {
+      return { label: 'Offline', color: 'text-red-400', bg: 'bg-red-400/12' };
+    }
+    if (phoneStatus === 'offline') {
+      return { label: 'Offline', color: 'text-red-400', bg: 'bg-red-400/12' };
+    }
+    if (phoneStatus === 'reconnecting') {
+      return { label: 'Reconnecting', color: 'text-yellow-400', bg: 'bg-yellow-400/12' };
+    }
+    return { label: 'Connected', color: 'text-[var(--green)]', bg: 'bg-[var(--green-soft)]' };
+  };
+
+  const status = getStatusBadge();
 
   return (
-    <div className="w-80 min-w-[320px] h-full bg-[#1a1a2e] border-r border-[#2a2a3e] flex flex-col">
+    <div className="w-[340px] min-w-[340px] h-full bg-[var(--surface-1)] rounded-[20px] shadow-[0_4px_24px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden">
       {/* Draggable title bar spacer for macOS traffic lights */}
       <div className="titlebar-drag h-12 flex-shrink-0" />
-      <div className="px-3 pb-3 border-b border-[#2a2a3e]">
-        <div className="relative titlebar-no-drag">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+
+      <div className="px-5 pb-0">
+        {/* Brand header */}
+        <div className="flex items-center gap-2.5 mb-5">
+          <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-[var(--accent)] to-[#818cf8] flex items-center justify-center">
+            <MessageCircle className="w-[18px] h-[18px] text-white" />
+          </div>
+          <h1 className="text-lg font-semibold">Messages</h1>
+          <span className={`ml-auto text-[11px] font-medium ${status.color} ${status.bg} px-2.5 py-0.5 rounded-full`}>
+            {status.label}
+          </span>
+        </div>
+
+        {/* Search */}
+        <div className="relative titlebar-no-drag mb-4">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-3)]" />
           <input
             type="text"
-            placeholder="Search messages..."
+            placeholder="Search conversations..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-[#0f0f1a] text-[#e2e8f0] text-sm pl-9 pr-3 py-2 rounded-lg border border-[#2a2a3e] focus:border-[#4361ee] focus:outline-none transition-colors placeholder-gray-500"
+            className="w-full bg-[var(--surface-2)] text-[var(--text)] text-[13px] pl-10 pr-3 py-2.5 rounded-xl border border-[var(--border)] focus:border-[var(--accent)] focus:outline-none transition-colors placeholder-[var(--text-3)]"
           />
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 pb-3">
+          {(['all', 'unread', 'groups', 'archived'] as TabType[]).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`flex-1 py-2 text-center rounded-[10px] text-xs font-medium transition-all cursor-pointer ${
+                activeTab === tab
+                  ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                  : 'text-[var(--text-2)] hover:bg-[rgba(255,255,255,0.04)]'
+              }`}
+            >
+              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto px-2 pb-2">
         {/* Search results view */}
         {searchResults !== null ? (
           <>
             {searchLoading && (
-              <div className="text-center text-gray-500 text-xs py-3">Searching...</div>
+              <div className="text-center text-[var(--text-3)] text-xs py-3">Searching...</div>
             )}
             {!searchLoading && searchResults.length === 0 && (
-              <div className="text-center text-gray-500 text-sm mt-8">No messages found</div>
+              <div className="text-center text-[var(--text-3)] text-sm mt-8">No messages found</div>
             )}
             {searchResults.map((result) => {
               const snip = snippet(result.text, search);
@@ -214,20 +293,20 @@ export default function ConversationList({
                     setSearch('');
                     setSearchResults(null);
                   }}
-                  className="w-full flex flex-col gap-0.5 px-4 py-3 text-left transition-colors cursor-pointer hover:bg-[#2a2a3e]/50"
+                  className="w-full flex flex-col gap-0.5 px-3 py-3 text-left transition-colors cursor-pointer hover:bg-[rgba(255,255,255,0.03)] rounded-[14px]"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-[#e2e8f0] truncate">
+                    <span className="text-[13px] font-medium text-[var(--text)] truncate">
                       {result.conversationName}
                     </span>
-                    <span className="text-xs text-gray-500 flex-shrink-0 ml-2">
+                    <span className="text-[10px] text-[var(--text-3)] flex-shrink-0 ml-2">
                       {relativeTime(result.timestamp)}
                     </span>
                   </div>
-                  <span className="text-xs text-gray-500">{result.senderIsMe ? 'You' : result.senderName}</span>
-                  <span className="text-xs text-gray-400 truncate">
+                  <span className="text-xs text-[var(--text-2)]">{result.senderIsMe ? 'You' : result.senderName}</span>
+                  <span className="text-xs text-[var(--text-2)] truncate">
                     {snip.before}
-                    <span className="text-[#4361ee] font-medium">{snip.match}</span>
+                    <span className="text-[var(--accent)] font-medium">{snip.match}</span>
                     {snip.after}
                   </span>
                 </button>
@@ -238,46 +317,44 @@ export default function ConversationList({
           <>
             {filtered.map((conv) => {
               const isSelected = conv.id === selectedId;
-              const avatarColor = conv.participants[0]?.avatarColor ?? '#4361ee';
-
               return (
                 <button
                   key={conv.id}
                   onClick={() => onSelect(conv.id)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors cursor-pointer ${
-                    isSelected ? 'bg-[#4361ee]/15' : 'hover:bg-[#2a2a3e]/50'
+                  className={`w-full flex items-center gap-3 px-3 py-3 text-left transition-all cursor-pointer rounded-[14px] mb-0.5 ${
+                    isSelected ? 'bg-[var(--accent-soft)]' : 'hover:bg-[rgba(255,255,255,0.03)]'
                   }`}
                 >
                   <div
-                    className="w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-white text-sm font-medium"
-                    style={{ backgroundColor: avatarColor }}
+                    className="w-11 h-11 rounded-[14px] flex-shrink-0 flex items-center justify-center text-white text-[15px] font-semibold"
+                    style={{ background: avatarGradient(conv.name) }}
                   >
                     {getInitials(conv.name)}
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-[#e2e8f0] truncate">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-[13px] font-medium text-[var(--text)] truncate">
                         {conv.name}
                       </span>
                       {conv.lastMessage && (
-                        <span className="text-xs text-gray-500 flex-shrink-0 ml-2">
+                        <span className="text-[10px] text-[var(--text-3)] flex-shrink-0 ml-2">
                           {relativeTime(conv.lastMessage.timestamp)}
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center justify-between mt-0.5">
+                    <div className="flex items-center justify-between">
                       {typingMap.has(conv.id) ? (
-                        <span className="text-xs text-[#4361ee] truncate italic">
+                        <span className="text-xs text-[var(--accent)] truncate italic">
                           {[...typingMap.get(conv.id)!].join(', ')} {typingMap.get(conv.id)!.size === 1 ? 'is' : 'are'} typing...
                         </span>
                       ) : (
-                        <span className="text-xs text-gray-400 truncate">
+                        <span className="text-xs text-[var(--text-2)] truncate">
                           {conv.lastMessage ? truncate(conv.lastMessage.text, 40) : ''}
                         </span>
                       )}
                       {conv.unread && (
-                        <span className="w-2.5 h-2.5 bg-[#4361ee] rounded-full flex-shrink-0 ml-2" />
+                        <span className="w-2 h-2 bg-[var(--accent)] rounded-full flex-shrink-0 ml-2" />
                       )}
                     </div>
                   </div>
@@ -286,8 +363,8 @@ export default function ConversationList({
             })}
 
             {filtered.length === 0 && (
-              <div className="text-center text-gray-500 text-sm mt-8">
-                {search ? 'No conversations found' : 'No conversations yet'}
+              <div className="text-center text-[var(--text-3)] text-sm mt-8">
+                {search ? 'No conversations found' : activeTab === 'archived' ? 'No archived conversations' : 'No conversations yet'}
               </div>
             )}
           </>
