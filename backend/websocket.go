@@ -121,6 +121,14 @@ func (h *WSHub) BroadcastNewMessage(msg MessageResponse) {
 	h.Broadcast(WSEvent{Type: "new_message", Data: msg})
 }
 
+func (h *WSHub) BroadcastMessagesRefreshed(conversationID string, msgs []MessageResponse, nextCursor string) {
+	h.Broadcast(WSEvent{Type: "messages_refreshed", Data: MessagesRefreshedData{
+		ConversationID: conversationID,
+		Messages:       msgs,
+		NextCursor:     nextCursor,
+	}})
+}
+
 func (h *WSHub) BroadcastMessageUpdate(msg MessageResponse) {
 	h.Broadcast(WSEvent{Type: "message_update", Data: msg})
 }

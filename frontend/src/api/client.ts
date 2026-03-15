@@ -123,6 +123,15 @@ export interface WsNewMessage {
   data: Message;
 }
 
+export interface WsMessagesRefreshed {
+  type: 'messages_refreshed';
+  data: {
+    conversationId: string;
+    messages: Message[];
+    nextCursor: string;
+  };
+}
+
 export interface WsMessageUpdate {
   type: 'message_update';
   data: Message;
@@ -178,6 +187,7 @@ export interface WsSessionExpired {
 
 export type WsEvent =
   | WsNewMessage
+  | WsMessagesRefreshed
   | WsMessageUpdate
   | WsMessageStatus
   | WsTyping

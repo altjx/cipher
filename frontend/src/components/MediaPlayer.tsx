@@ -8,6 +8,7 @@ interface MediaPlayerProps {
   messageId: string;
   isMe?: boolean;
   onImageClick?: (url: string) => void;
+  onImageLoad?: () => void;
 }
 
 export function getMediaUrl(item: MediaItem, messageId: string): string {
@@ -24,11 +25,13 @@ function ImageView({
   messageId,
   onClick,
   compact,
+  onLoad: onLoadProp,
 }: {
   item: MediaItem;
   messageId: string;
   onClick?: (url: string) => void;
   compact?: boolean;
+  onLoad?: () => void;
 }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
@@ -61,7 +64,7 @@ function ImageView({
         className={`rounded-[14px] cursor-pointer hover:opacity-90 transition-opacity ${
           compact ? 'w-full aspect-square object-cover' : 'max-w-[300px]'
         } ${loaded ? '' : 'hidden'}`}
-        onLoad={() => setLoaded(true)}
+        onLoad={() => { setLoaded(true); onLoadProp?.(); }}
         onError={() => setError(true)}
         onClick={() => onClick?.(url)}
       />
@@ -93,7 +96,7 @@ function NonImageView({ item, messageId, isMe }: { item: MediaItem; messageId: s
   );
 }
 
-export default function MediaPlayer({ media, messageId, isMe, onImageClick }: MediaPlayerProps) {
+export default function MediaPlayer({ media, messageId, isMe, onImageClick, onImageLoad }: MediaPlayerProps) {
   if (media.length === 0) return null;
 
   const images = media.filter((m) => m.mimeType.startsWith('image/'));
@@ -107,6 +110,7 @@ export default function MediaPlayer({ media, messageId, isMe, onImageClick }: Me
           item={images[0]}
           messageId={messageId}
           onClick={onImageClick}
+          onLoad={onImageLoad}
         />
       )}
       {images.length === 2 && (
@@ -117,6 +121,7 @@ export default function MediaPlayer({ media, messageId, isMe, onImageClick }: Me
               item={item}
               messageId={messageId}
               onClick={onImageClick}
+              onLoad={onImageLoad}
               compact
             />
           ))}
@@ -129,6 +134,7 @@ export default function MediaPlayer({ media, messageId, isMe, onImageClick }: Me
               item={images[0]}
               messageId={messageId}
               onClick={onImageClick}
+              onLoad={onImageLoad}
               compact
             />
           </div>
@@ -138,6 +144,7 @@ export default function MediaPlayer({ media, messageId, isMe, onImageClick }: Me
               item={item}
               messageId={messageId}
               onClick={onImageClick}
+              onLoad={onImageLoad}
               compact
             />
           ))}
@@ -151,6 +158,7 @@ export default function MediaPlayer({ media, messageId, isMe, onImageClick }: Me
               item={item}
               messageId={messageId}
               onClick={onImageClick}
+              onLoad={onImageLoad}
               compact
             />
           ))}

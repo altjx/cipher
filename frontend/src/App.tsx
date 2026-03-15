@@ -17,6 +17,7 @@ export default function App() {
   const [phoneStatus, setPhoneStatus] = useState<'connected' | 'offline' | 'reconnecting' | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailParticipantId, setDetailParticipantId] = useState<string | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const { subscribe, connectionState } = useWebSocket();
 
@@ -95,6 +96,10 @@ export default function App() {
     setDetailParticipantId(null);
   }, []);
 
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((v) => !v);
+  }, []);
+
   const handleShowParticipantDetail = useCallback((participantId: string) => {
     setDetailParticipantId(participantId);
     setDetailOpen(true);
@@ -125,6 +130,8 @@ export default function App() {
         subscribe={subscribe}
         phoneStatus={phoneStatus}
         wsConnected={connectionState === 'connected'}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={toggleSidebar}
       />
 
       {selectedConversationId ? (

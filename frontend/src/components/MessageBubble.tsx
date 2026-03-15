@@ -11,8 +11,11 @@ interface MessageBubbleProps {
   onReply: (message: Message) => void;
   onReact: (messageId: string, emoji: string) => void;
   onImageClick?: (url: string) => void;
+  onImageLoad?: () => void;
   conversationName?: string;
   showTimestamp?: boolean;
+  isGroup?: boolean;
+  senderColor?: string;
 }
 
 function formatTime(ts: number): string {
@@ -51,7 +54,7 @@ function StatusIcon({ status }: { status: Message['status'] }) {
   }
 }
 
-export default function MessageBubble({ message, isMe, showSender, onReply, onReact, onImageClick, conversationName, showTimestamp }: MessageBubbleProps) {
+export default function MessageBubble({ message, isMe, showSender, onReply, onReact, onImageClick, onImageLoad, conversationName, showTimestamp, isGroup, senderColor: sColor }: MessageBubbleProps) {
   const [hovered, setHovered] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
 
@@ -67,6 +70,7 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
   }
 
   const alignment = isMe ? 'items-end' : 'items-start';
+  const showGroupStyle = isGroup && !isMe && !!sColor;
 
   return (
     <div
@@ -74,11 +78,24 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); setShowReactions(false); }}
     >
-      {!isMe && showSender && message.sender.name && (
+      {!isMe && showSender && message.sender.name && !showGroupStyle && (
         <span className="text-xs text-[var(--text-2)] ml-1 mb-0.5">{message.sender.name}</span>
       )}
 
-      <div className="flex items-end gap-1 relative">
+      <div className="flex items-end gap-2 relative">
+        {/* Group chat avatar */}
+        {showGroupStyle && showSender && (
+          <div
+            className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-semibold flex-shrink-0 mb-0.5"
+            style={{ background: `linear-gradient(135deg, ${sColor}, ${sColor}dd)` }}
+          >
+            {getInitials(message.sender.name)}
+          </div>
+        )}
+        {showGroupStyle && !showSender && (
+          <div className="w-7 flex-shrink-0" />
+        )}
+
         {isMe && hovered && (
           <div className="flex gap-0.5 mr-1">
             <button
@@ -96,11 +113,21 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
           </div>
         )}
 
-        <div className={`${
-          isMe
-            ? 'bg-[var(--accent-2)] text-white rounded-[18px_18px_6px_18px] shadow-[0_2px_8px_rgba(59,130,246,0.2)]'
-            : 'bg-[var(--surface-2)] text-[var(--text)] rounded-[18px_18px_18px_6px]'
-        } px-4 py-2.5 max-w-md relative ${message.reactions.length > 0 ? 'mb-3' : ''}`}>
+        <div
+          className={`${
+            isMe
+              ? 'bg-[var(--accent-2)] text-white rounded-[18px_18px_6px_18px] shadow-[0_2px_8px_rgba(59,130,246,0.2)]'
+              : showGroupStyle
+                ? 'bg-[var(--surface-2)] text-[var(--text)] rounded-[4px_18px_18px_4px] border-l-[3px]'
+                : 'bg-[var(--surface-2)] text-[var(--text)] rounded-[18px_18px_18px_6px]'
+          } px-4 py-2.5 max-w-md relative ${message.reactions.length > 0 ? 'mb-3' : ''}`}
+          style={showGroupStyle ? { borderLeftColor: sColor } : undefined}
+        >
+          {/* Colored sender name inside bubble for group chats */}
+          {showGroupStyle && showSender && message.sender.name && (
+            <span className="text-[11px] font-semibold block mb-1" style={{ color: sColor }}>{message.sender.name}</span>
+          )}
+
           {message.replyTo && (
             <div className="border-l-2 border-white/30 pl-2 mb-1.5 text-xs opacity-70">
               <span className="font-medium">{message.replyTo.sender}</span>
@@ -109,7 +136,7 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
           )}
 
           {message.media.length > 0 && (
-            <MediaPlayer media={message.media} messageId={message.id} isMe={isMe} onImageClick={onImageClick} />
+            <MediaPlayer media={message.media} messageId={message.id} isMe={isMe} onImageClick={onImageClick} onImageLoad={onImageLoad} />
           )}
 
           {message.text && (
