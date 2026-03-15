@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, MessageCircle } from 'lucide-react';
+import { Search, MessageCircle, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { Conversation, WsConversationUpdate, WsTyping, SearchResult } from '../api/client';
 import { searchMessages, fetchConversations } from '../api/client';
 import { avatarGradient } from '../utils/avatarGradient';
@@ -13,6 +13,8 @@ interface ConversationListProps {
   subscribe: (eventType: 'conversation_update' | 'typing', callback: (data: unknown) => void) => () => void;
   phoneStatus: 'connected' | 'offline' | 'reconnecting' | null;
   wsConnected: boolean;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
 }
 
 type TabType = 'all' | 'unread' | 'groups' | 'archived';
@@ -72,6 +74,8 @@ export default function ConversationList({
   subscribe,
   phoneStatus,
   wsConnected,
+  collapsed,
+  onToggleCollapse,
 }: ConversationListProps) {
   const [search, setSearch] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
@@ -226,10 +230,60 @@ export default function ConversationList({
 
   const status = getStatusBadge();
 
+  // Collapsed mode: show only avatars
+  if (collapsed) {
+    return (
+      <div className="w-[68px] min-w-[68px] h-full bg-[var(--surface-1)] rounded-[20px] shadow-[0_4px_24px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden transition-all duration-300">
+        <div className="titlebar-drag h-12 flex-shrink-0" />
+        <div className="flex justify-center px-2 pb-3">
+          <button
+            onClick={onToggleCollapse}
+            className="w-10 h-10 rounded-[10px] flex items-center justify-center text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text)] transition-all cursor-pointer"
+            title="Expand sidebar"
+          >
+            <PanelLeftOpen className="w-6 h-6" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-2 pb-2 flex flex-col items-center gap-1">
+          {filtered.map((conv) => {
+            const isSelected = conv.id === selectedId;
+            return (
+              <button
+                key={conv.id}
+                onClick={() => onSelect(conv.id)}
+                className={`w-11 h-11 rounded-[14px] flex-shrink-0 flex items-center justify-center text-white text-[13px] font-semibold cursor-pointer transition-all relative ${
+                  isSelected ? 'ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--surface-1)]' : 'hover:opacity-80'
+                }`}
+                style={{ background: avatarGradient(conv.name) }}
+                title={conv.name}
+              >
+                {getInitials(conv.name)}
+                {conv.unread && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-[var(--accent)] rounded-full border-2 border-[var(--surface-1)]" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="w-[340px] min-w-[340px] h-full bg-[var(--surface-1)] rounded-[20px] shadow-[0_4px_24px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden">
+    <div className="w-[340px] min-w-[340px] h-full bg-[var(--surface-1)] rounded-[20px] shadow-[0_4px_24px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden transition-all duration-300">
       {/* Draggable title bar spacer for macOS traffic lights */}
       <div className="titlebar-drag h-12 flex-shrink-0" />
+      {/* Collapse button below titlebar */}
+      <div className="flex justify-end px-4 pb-1">
+        <button
+          onClick={onToggleCollapse}
+          className="w-9 h-9 rounded-[10px] flex items-center justify-center text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text)] transition-all cursor-pointer"
+          title="Collapse sidebar"
+        >
+          <PanelLeftClose className="w-6 h-6" />
+        </button>
+      </div>
 
       <div className="px-5 pb-0">
         {/* Brand header */}

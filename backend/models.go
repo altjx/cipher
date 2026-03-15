@@ -169,6 +169,12 @@ type QRRefreshData struct {
 	QRUrl string `json:"qrUrl"`
 }
 
+type MessagesRefreshedData struct {
+	ConversationID string            `json:"conversationId"`
+	Messages       []MessageResponse `json:"messages"`
+	NextCursor     string            `json:"nextCursor"`
+}
+
 // Conversion functions from gmproto types to API response types
 
 func ConvertConversation(conv *gmproto.Conversation) ConversationResponse {

@@ -31,3 +31,9 @@ export function avatarGradient(name: string): string {
   const [from, to] = PALETTE[hash(name) % PALETTE.length];
   return `linear-gradient(135deg, ${from}, ${to})`;
 }
+
+/** Returns the lighter accent color for a sender (used for color bars, name text, etc.) */
+export function senderColor(name: string): string {
+  const [from] = PALETTE[hash(name) % PALETTE.length];
+  return from;
+}

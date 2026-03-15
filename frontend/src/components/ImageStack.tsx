@@ -7,6 +7,8 @@ interface ImageStackProps {
   isMe: boolean;
   showSender: boolean;
   onImageClick: (url: string) => void;
+  isGroup?: boolean;
+  senderColor?: string;
 }
 
 function formatTime(ts: number): string {
@@ -14,9 +16,24 @@ function formatTime(ts: number): string {
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
-export default function ImageStack({ messages, isMe, showSender, onImageClick }: ImageStackProps) {
+const EMOJI_RE = /\p{Extended_Pictographic}/gu;
+
+function getInitials(name: string): string {
+  return name
+    .replace(EMOJI_RE, '')
+    .trim()
+    .split(/\s+/)
+    .map((w) => w[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+}
+
+export default function ImageStack({ messages, isMe, showSender, onImageClick, isGroup, senderColor }: ImageStackProps) {
   const [hovered, setHovered] = useState(false);
   const alignment = isMe ? 'items-end' : 'items-start';
+  const showGroupStyle = isGroup && !isMe && !!senderColor;
 
   const imageUrls = messages.map((msg) => {
     const imgMedia = msg.media.find((m) => m.mimeType.startsWith('image/'));
@@ -33,9 +50,29 @@ export default function ImageStack({ messages, isMe, showSender, onImageClick }:
 
   return (
     <div className={`flex flex-col ${alignment} mb-1`}>
-      {!isMe && showSender && firstMsg.sender.name && (
+      {!isMe && showSender && firstMsg.sender.name && !showGroupStyle && (
         <span className="text-xs text-[var(--text-2)] ml-1 mb-0.5">{firstMsg.sender.name}</span>
       )}
+
+      <div className="flex items-end gap-2">
+        {/* Group chat avatar */}
+        {showGroupStyle && showSender && (
+          <div
+            className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-semibold flex-shrink-0 mb-0.5"
+            style={{ background: `linear-gradient(135deg, ${senderColor}, ${senderColor}dd)` }}
+          >
+            {getInitials(firstMsg.sender.name)}
+          </div>
+        )}
+        {showGroupStyle && !showSender && (
+          <div className="w-7 flex-shrink-0" />
+        )}
+
+      <div>
+        {/* Colored sender name for group chats */}
+        {showGroupStyle && showSender && firstMsg.sender.name && (
+          <span className="text-[11px] font-semibold block mb-1 ml-1" style={{ color: senderColor }}>{firstMsg.sender.name}</span>
+        )}
 
       <div
         className="relative cursor-pointer group"
@@ -113,6 +150,8 @@ export default function ImageStack({ messages, isMe, showSender, onImageClick }:
       <div className={`flex items-center gap-1 mt-1 ${isMe ? 'justify-end mr-1' : 'justify-start ml-1'}`}>
         <span className="text-[10px] text-[var(--text-3)]">{formatTime(lastMsg.timestamp)}</span>
       </div>
+      </div>{/* close inner content wrapper */}
+      </div>{/* close flex row with avatar */}
     </div>
   );
 }
