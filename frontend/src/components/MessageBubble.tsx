@@ -100,7 +100,7 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
           isMe
             ? 'bg-[var(--accent-2)] text-white rounded-[18px_18px_6px_18px] shadow-[0_2px_8px_rgba(59,130,246,0.2)]'
             : 'bg-[var(--surface-2)] text-[var(--text)] rounded-[18px_18px_18px_6px]'
-        } px-4 py-2.5 max-w-md relative`}>
+        } px-4 py-2.5 max-w-md relative ${message.reactions.length > 0 ? 'mb-3' : ''}`}>
           {message.replyTo && (
             <div className="border-l-2 border-white/30 pl-2 mb-1.5 text-xs opacity-70">
               <span className="font-medium">{message.replyTo.sender}</span>
@@ -120,6 +120,19 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
             <span className={`text-[10px] ${isMe ? 'text-white/45' : 'text-[var(--text-3)]'}`}>{formatTime(message.timestamp)}</span>
             {isMe && <StatusIcon status={message.status} />}
           </div>
+
+          {message.reactions.length > 0 && (
+            <div className={`absolute -bottom-3 ${isMe ? 'left-2' : 'right-2'} flex gap-0.5`}>
+              {message.reactions.map((r) => (
+                <span
+                  key={r.emoji}
+                  className="bg-[var(--surface-3)] rounded-full px-1.5 py-0.5 text-xs border border-[var(--border)] shadow-sm"
+                >
+                  {r.emoji}{r.senderIds.length > 1 ? ` ${r.senderIds.length}` : ''}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {!isMe && hovered && (
@@ -162,18 +175,6 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
         </div>
       )}
 
-      {message.reactions.length > 0 && (
-        <div className="flex gap-1 mt-0.5 ml-1">
-          {message.reactions.map((r) => (
-            <span
-              key={r.emoji}
-              className="bg-[var(--surface-2)] rounded-full px-1.5 py-0.5 text-xs border border-[var(--border)]"
-            >
-              {r.emoji} {r.senderIds.length > 1 ? r.senderIds.length : ''}
-            </span>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
