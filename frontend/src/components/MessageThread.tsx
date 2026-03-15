@@ -3,7 +3,7 @@ import { Send, Paperclip, X, Search, MoreVertical, Smile, Info, Clock } from 'lu
 import type { Message, Conversation, WsNewMessage, WsMessageUpdate, WsMessageStatus, WsTyping } from '../api/client';
 import { fetchMessages, sendMessage, sendMedia, sendReaction, markRead, requestFullSizeImage } from '../api/client';
 import MessageBubble from './MessageBubble';
-import { avatarGradient } from '../utils/avatarGradient';
+import { avatarGradient, senderColor } from '../utils/avatarGradient';
 import ImageStack from './ImageStack';
 import ImageLightbox, { type LightboxImage } from './ImageLightbox';
 import { getMediaUrl } from './MediaPlayer';
@@ -26,7 +26,7 @@ function getInitials(name: string): string {
 interface MessageThreadProps {
   conversationId: string;
   conversation: Conversation | undefined;
-  subscribe: (eventType: 'new_message' | 'message_update' | 'message_status' | 'typing', callback: (data: unknown) => void) => () => void;
+  subscribe: (eventType: 'new_message' | 'messages_refreshed' | 'message_update' | 'message_status' | 'typing', callback: (data: unknown) => void) => () => void;
   targetMessageId?: string | null;
   onTargetReached?: () => void;
   detailOpen: boolean;
@@ -65,22 +65,35 @@ export default function MessageThread({ conversationId, conversation, subscribe,
   const [typingNames, setTypingNames] = useState<string[]>([]);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [lightboxImages, setLightboxImages] = useState<LightboxImage[]>([]);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showTimestamps, setShowTimestamps] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showMenu, setShowMenu] = useState(false);
+  const [scrollGeneration, setScrollGeneration] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const initialLoadRef = useRef(cached ? true : false);
   const typingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const refreshedRef = useRef(false);
 
   const scrollToBottom = useCallback(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, []);
+
+  // When an image finishes loading, re-scroll if the user is near the bottom.
+  // This prevents layout shifts from pushing the viewport up after the initial scroll.
+  const handleImageLoad = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceFromBottom < 400) {
+      bottomRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
+    }
   }, []);
 
   // Close menu on outside click
@@ -116,20 +129,27 @@ export default function MessageThread({ conversationId, conversation, subscribe,
       setMessages(cached.messages);
       setCursor(cached.cursor);
       setHasMore(cached.hasMore);
-      initialLoadRef.current = true;
+      // Scroll to bottom immediately for cached conversations
+      setScrollGeneration((g) => g + 1);
     } else {
       setMessages([]);
       setCursor(null);
       setHasMore(true);
-      initialLoadRef.current = false;
     }
+
+    // Reset: background refresh hasn't arrived yet for this load cycle
+    refreshedRef.current = false;
 
     fetchMessages(conversationId).then((res) => {
       if (cancelled) return;
+      // Skip if messages_refreshed already arrived with fresher data
+      if (refreshedRef.current) return;
+
       setMessages(res.messages);
       setCursor(res.nextCursor);
       setHasMore(res.nextCursor !== null);
-      initialLoadRef.current = true;
+      // Always scroll to bottom when fresh data arrives
+      setScrollGeneration((g) => g + 1);
 
       messageCache.set(conversationId, {
         messages: res.messages,
@@ -152,10 +172,12 @@ export default function MessageThread({ conversationId, conversation, subscribe,
 
   // Scroll to bottom after initial load or conversation switch
   useEffect(() => {
-    if (initialLoadRef.current && messages.length > 0) {
+    if (messages.length === 0) return;
+    // Use rAF to let the browser lay out content (especially images with explicit dimensions)
+    requestAnimationFrame(() => {
       bottomRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
-    }
-  }, [conversationId, messages.length > 0 && initialLoadRef.current]); // eslint-disable-line react-hooks/exhaustive-deps
+    });
+  }, [scrollGeneration]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Scroll to target message (from search)
   useEffect(() => {
@@ -243,6 +265,29 @@ export default function MessageThread({ conversationId, conversation, subscribe,
       }
     });
 
+    // Background refresh completed — replace stale messages with fresh data
+    const unsubRefreshed = subscribe('messages_refreshed', (data) => {
+      const d = data as { conversationId: string; messages: Message[]; nextCursor: string };
+      if (d.conversationId === conversationId) {
+        refreshedRef.current = true;
+        setMessages(d.messages);
+        setCursor(d.nextCursor || null);
+        setHasMore(!!d.nextCursor);
+        messageCache.set(conversationId, {
+          messages: d.messages,
+          cursor: d.nextCursor || null,
+          hasMore: !!d.nextCursor,
+        });
+        if (d.messages.length > 0) {
+          const last = d.messages[d.messages.length - 1];
+          if (!last.sender.isMe) {
+            markRead(conversationId, last.id).catch(() => {});
+          }
+        }
+        setTimeout(scrollToBottom, 50);
+      }
+    });
+
     const unsubUpdate = subscribe('message_update', (data) => {
       const msg = data as WsMessageUpdate['data'];
       if (msg.conversationId === conversationId) {
@@ -298,6 +343,7 @@ export default function MessageThread({ conversationId, conversation, subscribe,
 
     return () => {
       unsubMsg();
+      unsubRefreshed();
       unsubUpdate();
       unsubStatus();
       unsubTyping();
@@ -394,10 +440,10 @@ export default function MessageThread({ conversationId, conversation, subscribe,
     return ids;
   }, [messages, searchLower, searchQuery]);
 
-  // Collect all images across messages for the lightbox
-  const allImages = useMemo<LightboxImage[]>(() => {
+  // Build lightbox images for a set of messages (scoped to the clicked context)
+  const buildLightboxImages = useCallback((msgs: Message[]): LightboxImage[] => {
     const imgs: LightboxImage[] = [];
-    for (const msg of messages) {
+    for (const msg of msgs) {
       for (const media of msg.media) {
         if (media.mimeType.startsWith('image/')) {
           imgs.push({
@@ -412,18 +458,19 @@ export default function MessageThread({ conversationId, conversation, subscribe,
       }
     }
     return imgs;
-  }, [messages]);
+  }, []);
 
   // Track which full-size images we've already requested
   const fullSizeRequestedRef = useRef<Set<string>>(new Set());
   const [loadingFullSize, setLoadingFullSize] = useState(false);
 
   const handleImageClick = useCallback(
-    (url: string) => {
-      const idx = allImages.findIndex((img) => img.url === url);
+    (url: string, scopedImages: LightboxImage[]) => {
+      const idx = scopedImages.findIndex((img) => img.url === url);
       if (idx !== -1) {
+        setLightboxImages(scopedImages);
         setLightboxIndex(idx);
-        const img = allImages[idx];
+        const img = scopedImages[idx];
         if (img.isThumbnail && img.actionMessageId) {
           const key = `${img.messageId}:${img.actionMessageId}`;
           if (!fullSizeRequestedRef.current.has(key)) {
@@ -434,13 +481,13 @@ export default function MessageThread({ conversationId, conversation, subscribe,
         }
       }
     },
-    [allImages]
+    []
   );
 
   const handleLightboxNavigate = useCallback(
     (idx: number) => {
       setLightboxIndex(idx);
-      const img = allImages[idx];
+      const img = lightboxImages[idx];
       if (img?.isThumbnail && img.actionMessageId) {
         const key = `${img.messageId}:${img.actionMessageId}`;
         if (!fullSizeRequestedRef.current.has(key)) {
@@ -450,15 +497,42 @@ export default function MessageThread({ conversationId, conversation, subscribe,
         }
       }
     },
-    [allImages]
+    [lightboxImages]
   );
 
   // Clear loading state when the image URL changes (full-size arrived via WS update)
   useEffect(() => {
-    if (lightboxIndex !== null && allImages[lightboxIndex] && !allImages[lightboxIndex].isThumbnail) {
+    if (lightboxIndex !== null && lightboxImages[lightboxIndex] && !lightboxImages[lightboxIndex].isThumbnail) {
       setLoadingFullSize(false);
     }
-  }, [lightboxIndex, allImages]);
+  }, [lightboxIndex, lightboxImages]);
+
+  // Keep lightbox images in sync when messages update (e.g. full-size image arrives via WS)
+  useEffect(() => {
+    if (lightboxIndex === null || lightboxImages.length === 0) return;
+    const currentImg = lightboxImages[lightboxIndex];
+    if (!currentImg) return;
+    // Find the source message and rebuild the URL in case media was updated
+    const msg = messages.find((m) => m.id === currentImg.messageId);
+    if (!msg) return;
+    const updatedImages = lightboxImages.map((img) => {
+      const srcMsg = messages.find((m) => m.id === img.messageId);
+      if (!srcMsg) return img;
+      for (const media of srcMsg.media) {
+        if (media.mimeType.startsWith('image/')) {
+          const url = getMediaUrl(media, srcMsg.id);
+          if (media.actionMessageId === img.actionMessageId || url === img.url) {
+            return { ...img, url, isThumbnail: media.isThumbnail };
+          }
+        }
+      }
+      return img;
+    });
+    // Only update if something actually changed
+    if (updatedImages.some((img, i) => img.url !== lightboxImages[i].url || img.isThumbnail !== lightboxImages[i].isThumbnail)) {
+      setLightboxImages(updatedImages);
+    }
+  }, [messages, lightboxIndex, lightboxImages]);
 
   // Helper: is this message image-only (has images, no text)?
   const isImageOnly = (msg: Message) =>
@@ -469,6 +543,18 @@ export default function MessageThread({ conversationId, conversation, subscribe,
   const subtitleText = conversation?.isGroup
     ? otherParticipants.map((p) => p.name).join(', ')
     : 'RCS';
+
+  // Map sender IDs to colors for group chats
+  const senderColorMap = useMemo(() => {
+    const map = new Map<string, string>();
+    if (!conversation?.isGroup) return map;
+    for (const p of conversation.participants) {
+      if (!p.isMe) {
+        map.set(p.id, senderColor(p.name));
+      }
+    }
+    return map;
+  }, [conversation]);
 
   // Build messages with date separators, grouping consecutive image-only messages
   const elements: React.ReactNode[] = [];
@@ -507,13 +593,16 @@ export default function MessageThread({ conversationId, conversation, subscribe,
       }
 
       if (group.length >= 2) {
+        const stackImages = buildLightboxImages(group);
         elements.push(
           <div key={`stack-${msg.id}`} data-message-id={msg.id} className={isSearchMatch ? '' : 'opacity-25'}>
             <ImageStack
               messages={group}
               isMe={msg.sender.isMe}
               showSender={showSender}
-              onImageClick={handleImageClick}
+              onImageClick={(url) => handleImageClick(url, stackImages)}
+              isGroup={conversation?.isGroup}
+              senderColor={senderColorMap.get(msg.sender.id)}
             />
           </div>
         );
@@ -523,6 +612,7 @@ export default function MessageThread({ conversationId, conversation, subscribe,
     }
 
     // Regular single message
+    const msgImages = buildLightboxImages([msg]);
     elements.push(
       <div
         key={msg.id}
@@ -535,9 +625,12 @@ export default function MessageThread({ conversationId, conversation, subscribe,
           showSender={showSender}
           onReply={handleReply}
           onReact={handleReact}
-          onImageClick={handleImageClick}
+          onImageClick={msgImages.length > 0 ? (url: string) => handleImageClick(url, msgImages) : undefined}
+          onImageLoad={handleImageLoad}
           conversationName={conversation?.name}
           showTimestamp={showTimestamps}
+          isGroup={conversation?.isGroup}
+          senderColor={senderColorMap.get(msg.sender.id)}
         />
       </div>
     );
@@ -755,9 +848,9 @@ export default function MessageThread({ conversationId, conversation, subscribe,
       {/* Image lightbox */}
       {lightboxIndex !== null && (
         <ImageLightbox
-          images={allImages}
+          images={lightboxImages}
           currentIndex={lightboxIndex}
-          onClose={() => { setLightboxIndex(null); setLoadingFullSize(false); }}
+          onClose={() => { setLightboxIndex(null); setLightboxImages([]); setLoadingFullSize(false); }}
           onNavigate={handleLightboxNavigate}
           loadingFullSize={loadingFullSize}
         />
