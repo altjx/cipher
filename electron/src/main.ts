@@ -6,9 +6,11 @@ import {
   ipcMain,
   shell,
 } from 'electron';
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, spawn, execFile } from 'child_process';
 import * as path from 'path';
+import * as fs from 'fs';
 import * as http from 'http';
+import * as https from 'https';
 import WebSocket from 'ws';
 import treekill from 'tree-kill';
 
@@ -420,6 +422,40 @@ function buildMenu(): void {
 function setupIpcHandlers(): void {
   ipcMain.handle('get-backend-url', () => BACKEND_URL);
   ipcMain.handle('get-ws-url', () => WS_URL);
+
+  ipcMain.handle('open-image-in-preview', async (_event, imageUrl: string) => {
+    try {
+      // Fetch the image from the backend
+      const fullUrl = imageUrl.startsWith('/') ? `${BACKEND_URL}${imageUrl}` : imageUrl;
+      const data = await new Promise<Buffer>((resolve, reject) => {
+        const mod = fullUrl.startsWith('https') ? https : http;
+        mod.get(fullUrl, (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => chunks.push(chunk));
+          res.on('end', () => resolve(Buffer.concat(chunks)));
+          res.on('error', reject);
+        }).on('error', reject);
+      });
+
+      // Write to a temp file
+      const tmpDir = app.getPath('temp');
+      const ext = imageUrl.includes('heic') ? '.heic' : '.jpg';
+      const tmpFile = path.join(tmpDir, `gm-preview-${Date.now()}${ext}`);
+      fs.writeFileSync(tmpFile, data);
+
+      // Open in Preview (macOS)
+      if (process.platform === 'darwin') {
+        execFile('open', ['-a', 'Preview', tmpFile]);
+      } else {
+        shell.openPath(tmpFile);
+      }
+
+      return { success: true };
+    } catch (err) {
+      console.error('[electron] Failed to open image in preview:', err);
+      return { success: false, error: String(err) };
+    }
+  });
 }
 
 // ─── App lifecycle ───────────────────────────────────────────────────────────
