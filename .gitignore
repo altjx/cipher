@@ -17,6 +17,10 @@ backend/data/
 .vscode/
 .idea/
 
+# Dev resources
+mockups/
+tools/
+
 # Env
 .env
 .env.*
