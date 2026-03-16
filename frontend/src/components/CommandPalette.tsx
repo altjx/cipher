@@ -170,6 +170,7 @@ export default function CommandPalette({
   const [mode, setMode] = useState<PaletteMode>(initialMode);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const { themeId, setTheme } = useTheme();
   const originalThemeRef = useRef(themeId);
@@ -183,9 +184,13 @@ export default function CommandPalette({
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Focus input on mount and mode change
+  // Focus input on mount and mode change; focus container in shortcuts mode
   useEffect(() => {
-    inputRef.current?.focus();
+    if (mode === 'shortcuts') {
+      containerRef.current?.focus();
+    } else {
+      inputRef.current?.focus();
+    }
   }, [mode]);
 
   // Reset selection & query on mode change
@@ -554,8 +559,11 @@ export default function CommandPalette({
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
 
       <div
-        className="relative w-[520px] max-h-[60vh] bg-[var(--surface-1)] border border-[var(--border)] rounded-2xl shadow-[0_16px_64px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col"
+        ref={containerRef}
+        className="relative w-[520px] max-h-[60vh] bg-[var(--surface-1)] border border-[var(--border)] rounded-2xl shadow-[0_16px_64px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col outline-none"
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={handleKeyDown}
+        tabIndex={-1}
       >
         {/* Input */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--border)]">
