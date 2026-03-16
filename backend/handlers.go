@@ -52,6 +52,20 @@ func (h *Handlers) Unpair(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// DeleteConversation deletes a conversation.
+// DELETE /api/conversations/:id
+func (h *Handlers) DeleteConversation(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	conversationID := vars["id"]
+
+	if err := h.client.DeleteConversation(conversationID); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to delete conversation: "+err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // ListConversations returns conversations.
 // GET /api/conversations
 func (h *Handlers) ListConversations(w http.ResponseWriter, r *http.Request) {

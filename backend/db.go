@@ -345,6 +345,26 @@ func (d *Database) GetMessages(conversationID string, limit int, cursor string) 
 	return msgs, nextCursor, nil
 }
 
+func (d *Database) DeleteConversation(conversationID string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM messages WHERE conversation_id = ?`, conversationID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM conversations WHERE id = ?`, conversationID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 func (d *Database) UpdateMessageStatus(messageID, status string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()

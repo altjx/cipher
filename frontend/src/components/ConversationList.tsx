@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
-import { Search, MessageCircle, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Search, MessageCircle, PanelLeftClose, PanelLeftOpen, Trash2 } from 'lucide-react';
 import type { Conversation, WsConversationUpdate, WsTyping, SearchResult } from '../api/client';
-import { searchMessages, fetchConversations } from '../api/client';
+import { searchMessages, fetchConversations, deleteConversation } from '../api/client';
 import { avatarGradient } from '../utils/avatarGradient';
 
 interface ConversationListProps {
@@ -10,11 +10,14 @@ interface ConversationListProps {
   onSelect: (id: string) => void;
   onSelectMessage: (conversationId: string, messageId: string) => void;
   onConversationsUpdate: (updater: (prev: Conversation[]) => Conversation[]) => void;
+  onDeleteConversation: (id: string) => void;
+  deletedIds: Set<string>;
   subscribe: (eventType: 'conversation_update' | 'typing', callback: (data: unknown) => void) => () => void;
   phoneStatus: 'connected' | 'offline' | 'reconnecting' | null;
   wsConnected: boolean;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  focusSearchTrigger?: number;
 }
 
 type TabType = 'all' | 'unread' | 'groups' | 'archived';
@@ -71,13 +74,17 @@ export default function ConversationList({
   onSelect,
   onSelectMessage,
   onConversationsUpdate,
+  onDeleteConversation,
+  deletedIds,
   subscribe,
   phoneStatus,
   wsConnected,
   collapsed,
   onToggleCollapse,
+  focusSearchTrigger,
 }: ConversationListProps) {
   const [search, setSearch] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('all');
@@ -86,10 +93,42 @@ export default function ConversationList({
   // Map of conversationId -> set of typing names
   const [typingMap, setTypingMap] = useState<Map<string, Set<string>>>(new Map());
   const typingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Context menu
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; convId: string; convName: string } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ convId: string; convName: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, convId: string, convName: string) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, convId, convName });
+  }, []);
+
+  // Close context menu on click outside
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handler = () => setContextMenu(null);
+    window.addEventListener('click', handler);
+    return () => window.removeEventListener('click', handler);
+  }, [contextMenu]);
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteConfirm) return;
+    setDeleting(true);
+    try {
+      await deleteConversation(deleteConfirm.convId);
+      onDeleteConversation(deleteConfirm.convId);
+    } catch {
+      // Error is handled silently — conversation stays in list
+    } finally {
+      setDeleting(false);
+      setDeleteConfirm(null);
+    }
+  }, [deleteConfirm, onDeleteConversation]);
 
   useEffect(() => {
     const unsub = subscribe('conversation_update', (data) => {
       const updated = data as WsConversationUpdate['data'];
+      if (deletedIds.has(updated.id)) return;
       onConversationsUpdate((prev) => {
         const exists = prev.find((c) => c.id === updated.id);
         if (exists) {
@@ -162,6 +201,14 @@ export default function ConversationList({
       .then((res) => setArchivedConvs(res.conversations))
       .catch(() => {});
   }, [activeTab]);
+
+  // Focus search input when triggered externally (Cmd+S)
+  useEffect(() => {
+    if (focusSearchTrigger && focusSearchTrigger > 0) {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    }
+  }, [focusSearchTrigger]);
 
   // Debounced message content search
   useEffect(() => {
@@ -301,6 +348,7 @@ export default function ConversationList({
         <div className="relative titlebar-no-drag mb-4">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-3)]" />
           <input
+            ref={searchInputRef}
             type="text"
             placeholder="Search conversations..."
             value={search}
@@ -375,6 +423,7 @@ export default function ConversationList({
                 <button
                   key={conv.id}
                   onClick={() => onSelect(conv.id)}
+                  onContextMenu={(e) => handleContextMenu(e, conv.id, conv.name)}
                   className={`w-full flex items-center gap-3 px-3 py-3 text-left transition-all cursor-pointer rounded-[14px] mb-0.5 ${
                     isSelected ? 'bg-[var(--accent-soft)]' : 'hover:bg-[rgba(255,255,255,0.03)]'
                   }`}
@@ -424,6 +473,68 @@ export default function ConversationList({
           </>
         )}
       </div>
+
+      {/* Context menu */}
+      {contextMenu && (
+        <div
+          className="fixed z-50 bg-[var(--surface-2)] border border-[var(--border)] rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] py-1.5 min-w-[160px]"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setDeleteConfirm({ convId: contextMenu.convId, convName: contextMenu.convName });
+              setContextMenu(null);
+            }}
+            className="w-full flex items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-red-400 hover:bg-[rgba(255,255,255,0.05)] transition-colors cursor-pointer"
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete conversation
+          </button>
+        </div>
+      )}
+
+      {/* Delete confirmation dialog */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => !deleting && setDeleteConfirm(null)}>
+          <div
+            className="bg-[var(--surface-1)] border border-[var(--border)] rounded-2xl shadow-[0_16px_48px_rgba(0,0,0,0.5)] p-6 max-w-sm mx-4"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') { if (!deleting) setDeleteConfirm(null); }
+              if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                e.preventDefault();
+                const btns = e.currentTarget.querySelectorAll<HTMLButtonElement>('.confirm-btn:not(:disabled)');
+                const idx = Array.from(btns).indexOf(document.activeElement as HTMLButtonElement);
+                const next = e.key === 'ArrowRight' ? (idx + 1) % btns.length : (idx - 1 + btns.length) % btns.length;
+                btns[next]?.focus();
+              }
+            }}
+          >
+            <h3 className="text-[15px] font-semibold text-[var(--text)] mb-2">Delete conversation?</h3>
+            <p className="text-[13px] text-[var(--text-2)] mb-5">
+              This will permanently delete your conversation with <strong className="text-[var(--text)]">{deleteConfirm.convName}</strong> from this device and your phone.
+            </p>
+            <div className="flex justify-end gap-2.5">
+              <button
+                autoFocus
+                onClick={() => setDeleteConfirm(null)}
+                disabled={deleting}
+                className="confirm-btn px-4 py-2 text-[13px] font-medium text-[var(--text-2)] hover:bg-[var(--surface-2)] rounded-lg transition-colors cursor-pointer disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-1 focus:ring-offset-[var(--surface-1)]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteConfirm}
+                disabled={deleting}
+                className="confirm-btn px-4 py-2 text-[13px] font-medium text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors cursor-pointer disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-1 focus:ring-offset-[var(--surface-1)]"
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

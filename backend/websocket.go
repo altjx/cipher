@@ -148,6 +148,10 @@ func (h *WSHub) BroadcastConversationUpdate(conv ConversationResponse) {
 	h.Broadcast(WSEvent{Type: "conversation_update", Data: conv})
 }
 
+func (h *WSHub) BroadcastConversationDeleted(conversationID string) {
+	h.Broadcast(WSEvent{Type: "conversation_deleted", Data: ConversationDeletedData{ConversationID: conversationID}})
+}
+
 func (h *WSHub) BroadcastPhoneStatus(status string) {
 	h.Broadcast(WSEvent{Type: "phone_status", Data: PhoneStatusData{Status: status}})
 }

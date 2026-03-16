@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
-import type { Conversation, WsPhoneStatus } from './api/client';
-import { getStatus, fetchConversations } from './api/client';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import type { Conversation, WsPhoneStatus, WsConversationDeleted } from './api/client';
+import { getStatus, fetchConversations, deleteConversation } from './api/client';
 import { useWebSocket } from './hooks/useWebSocket';
 import QRPairing from './components/QRPairing';
 import ConversationList from './components/ConversationList';
 import MessageThread from './components/MessageThread';
 import DetailPanel from './components/DetailPanel';
+import CommandPalette from './components/CommandPalette';
 
 type AppView = 'loading' | 'pairing' | 'main';
 
@@ -18,7 +19,15 @@ export default function App() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailParticipantId, setDetailParticipantId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteInitialMode, setPaletteInitialMode] = useState<'commands' | 'goto'>('commands');
+  const [deleteConfirm, setDeleteConfirm] = useState<{ convId: string; convName: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [refocusTrigger, setRefocusTrigger] = useState(0);
+  const [searchTrigger, setSearchTrigger] = useState(0);        // Cmd+F: find in conversation
+  const [globalSearchTrigger, setGlobalSearchTrigger] = useState(0); // Cmd+S: search all
 
+  const deletedIdsRef = useRef<Set<string>>(new Set());
   const { subscribe, connectionState } = useWebSocket();
 
   // Check status on mount
@@ -50,6 +59,12 @@ export default function App() {
       .catch(() => {});
   }, [view]);
 
+  const handleDeleteConversation = useCallback((id: string) => {
+    deletedIdsRef.current.add(id);
+    setConversations((prev) => prev.filter((c) => c.id !== id));
+    setSelectedConversationId((prev) => (prev === id ? null : prev));
+  }, []);
+
   // Subscribe to session and phone events
   useEffect(() => {
     const unsubExpired = subscribe('session_expired', () => {
@@ -63,11 +78,17 @@ export default function App() {
       setPhoneStatus(d.status);
     });
 
+    const unsubDeleted = subscribe('conversation_deleted', (data) => {
+      const d = data as WsConversationDeleted['data'];
+      handleDeleteConversation(d.conversationId);
+    });
+
     return () => {
       unsubExpired();
       unsubPhone();
+      unsubDeleted();
     };
-  }, [subscribe]);
+  }, [subscribe, handleDeleteConversation]);
 
   const handlePaired = useCallback(() => {
     setView('main');
@@ -105,6 +126,149 @@ export default function App() {
     setDetailOpen(true);
   }, []);
 
+  // Sorted conversation list for navigation
+  const sortedConversations = useMemo(
+    () => [...conversations].sort((a, b) => (b.lastMessage?.timestamp ?? 0) - (a.lastMessage?.timestamp ?? 0)),
+    [conversations]
+  );
+
+  // Navigate to prev/next conversation, prioritizing unread
+  const navigateConversation = useCallback((direction: 'prev' | 'next') => {
+    if (sortedConversations.length === 0) return;
+
+    const currentIdx = selectedConversationId
+      ? sortedConversations.findIndex((c) => c.id === selectedConversationId)
+      : -1;
+
+    // Try to find next unread in the given direction
+    const unreadInDirection = direction === 'prev'
+      ? sortedConversations.filter((_, i) => i < currentIdx && sortedConversations[i].unread)
+      : sortedConversations.filter((_, i) => i > currentIdx && sortedConversations[i].unread);
+
+    if (unreadInDirection.length > 0) {
+      const target = direction === 'prev'
+        ? unreadInDirection[unreadInDirection.length - 1] // closest unread before
+        : unreadInDirection[0]; // closest unread after
+      handleSelectConversation(target.id);
+      return;
+    }
+
+    // Fall back to adjacent conversation
+    const nextIdx = direction === 'prev'
+      ? Math.max(0, currentIdx - 1)
+      : Math.min(sortedConversations.length - 1, currentIdx + 1);
+
+    if (nextIdx !== currentIdx && sortedConversations[nextIdx]) {
+      handleSelectConversation(sortedConversations[nextIdx].id);
+    }
+  }, [sortedConversations, selectedConversationId, handleSelectConversation]);
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (view !== 'main') return;
+
+      const isMeta = e.metaKey || e.ctrlKey;
+      if (!isMeta) return;
+
+      switch (e.key) {
+        case 'k': // Cmd+K: Command palette
+          e.preventDefault();
+          setPaletteInitialMode('commands');
+          setPaletteOpen((v) => !v);
+          break;
+        case 'g': // Cmd+G: Go to conversation
+          e.preventDefault();
+          setPaletteInitialMode('goto');
+          setPaletteOpen(true);
+          break;
+        case '[': // Cmd+[: Previous conversation
+          e.preventDefault();
+          navigateConversation('prev');
+          break;
+        case ']': // Cmd+]: Next conversation
+          e.preventDefault();
+          navigateConversation('next');
+          break;
+        case 'l': // Cmd+L: Toggle sidebar
+          e.preventDefault();
+          setSidebarCollapsed((v) => !v);
+          break;
+        case 'i': // Cmd+I: Toggle info panel
+          e.preventDefault();
+          if (selectedConversationId) {
+            setDetailOpen((v) => !v);
+            setDetailParticipantId(null);
+          }
+          break;
+        case 'f': // Cmd+F: Find in conversation
+          e.preventDefault();
+          if (selectedConversationId) {
+            setSearchTrigger((v) => v + 1);
+          }
+          break;
+        case 's': // Cmd+S: Search all conversations
+          e.preventDefault();
+          setSidebarCollapsed(false);
+          setGlobalSearchTrigger((v) => v + 1);
+          break;
+        case 'd': // Cmd+D: Delete conversation
+          e.preventDefault();
+          if (selectedConversationId) {
+            const conv = conversations.find((c) => c.id === selectedConversationId);
+            setDeleteConfirm({ convId: selectedConversationId, convName: conv?.name ?? 'this conversation' });
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [view, navigateConversation, selectedConversationId, conversations]);
+
+  // Handle actions dispatched from the command palette
+  const handlePaletteAction = useCallback((action: string) => {
+    switch (action) {
+      case 'prev':
+        navigateConversation('prev');
+        break;
+      case 'next':
+        navigateConversation('next');
+        break;
+      case 'find-in-conversation':
+        if (selectedConversationId) setSearchTrigger((v) => v + 1);
+        break;
+      case 'search-all':
+        setSidebarCollapsed(false);
+        setGlobalSearchTrigger((v) => v + 1);
+        break;
+      case 'toggle-sidebar':
+        setSidebarCollapsed((v) => !v);
+        break;
+      case 'toggle-info':
+        if (selectedConversationId) {
+          setDetailOpen((v) => !v);
+          setDetailParticipantId(null);
+        }
+        break;
+    }
+    setRefocusTrigger((v) => v + 1);
+  }, [navigateConversation, selectedConversationId]);
+
+  const handleDeleteConfirmAction = useCallback(async () => {
+    if (!deleteConfirm) return;
+    setDeleting(true);
+    try {
+      await deleteConversation(deleteConfirm.convId);
+      handleDeleteConversation(deleteConfirm.convId);
+    } catch {
+      // Error handled silently
+    } finally {
+      setDeleting(false);
+      setDeleteConfirm(null);
+    }
+  }, [deleteConfirm, handleDeleteConversation]);
+
   const selectedConversation = conversations.find((c) => c.id === selectedConversationId);
 
   if (view === 'loading') {
@@ -127,11 +291,14 @@ export default function App() {
         onSelect={handleSelectConversation}
         onSelectMessage={handleSelectMessage}
         onConversationsUpdate={handleConversationsUpdate}
+        onDeleteConversation={handleDeleteConversation}
+        deletedIds={deletedIdsRef.current}
         subscribe={subscribe}
         phoneStatus={phoneStatus}
         wsConnected={connectionState === 'connected'}
         collapsed={sidebarCollapsed}
         onToggleCollapse={toggleSidebar}
+        focusSearchTrigger={globalSearchTrigger}
       />
 
       {selectedConversationId ? (
@@ -144,6 +311,8 @@ export default function App() {
           detailOpen={detailOpen}
           onToggleDetail={toggleDetail}
           onShowParticipantDetail={handleShowParticipantDetail}
+          searchTrigger={searchTrigger}
+          refocusTrigger={refocusTrigger}
         />
       ) : (
         <div className="flex-1 bg-[var(--surface-1)] rounded-[20px] shadow-[0_4px_24px_rgba(0,0,0,0.2)] flex flex-col">
@@ -163,6 +332,58 @@ export default function App() {
           conversation={selectedConversation}
           focusParticipantId={detailParticipantId}
         />
+      )}
+
+      {paletteOpen && (
+        <CommandPalette
+          conversations={sortedConversations}
+          hasConversation={!!selectedConversationId}
+          initialMode={paletteInitialMode}
+          onAction={handlePaletteAction}
+          onSelectConversation={handleSelectConversation}
+          onClose={() => { setPaletteOpen(false); setPaletteInitialMode('commands'); setRefocusTrigger((v) => v + 1); }}
+        />
+      )}
+
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => !deleting && setDeleteConfirm(null)}>
+          <div
+            className="bg-[var(--surface-1)] border border-[var(--border)] rounded-2xl shadow-[0_16px_48px_rgba(0,0,0,0.5)] p-6 max-w-sm mx-4"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') { if (!deleting) setDeleteConfirm(null); }
+              if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                e.preventDefault();
+                const btns = e.currentTarget.querySelectorAll<HTMLButtonElement>('.confirm-btn:not(:disabled)');
+                const idx = Array.from(btns).indexOf(document.activeElement as HTMLButtonElement);
+                const next = e.key === 'ArrowRight' ? (idx + 1) % btns.length : (idx - 1 + btns.length) % btns.length;
+                btns[next]?.focus();
+              }
+            }}
+          >
+            <h3 className="text-[15px] font-semibold text-[var(--text)] mb-2">Delete conversation?</h3>
+            <p className="text-[13px] text-[var(--text-2)] mb-5">
+              This will permanently delete your conversation with <strong className="text-[var(--text)]">{deleteConfirm.convName}</strong> from this device and your phone.
+            </p>
+            <div className="flex justify-end gap-2.5">
+              <button
+                autoFocus
+                onClick={() => setDeleteConfirm(null)}
+                disabled={deleting}
+                className="confirm-btn px-4 py-2 text-[13px] font-medium text-[var(--text-2)] hover:bg-[var(--surface-2)] rounded-lg transition-colors cursor-pointer disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-1 focus:ring-offset-[var(--surface-1)]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteConfirmAction}
+                disabled={deleting}
+                className="confirm-btn px-4 py-2 text-[13px] font-medium text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors cursor-pointer disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-1 focus:ring-offset-[var(--surface-1)]"
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
