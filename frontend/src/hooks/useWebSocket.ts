@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { WsEventType } from '../api/client';
+import { getApiBaseUrl } from '../api/client';
 
 type Callback = (data: unknown) => void;
 
@@ -16,11 +17,18 @@ export function useWebSocket(): UseWebSocketReturn {
   const backoffRef = useRef(1000);
   const mountedRef = useRef(true);
 
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     if (!mountedRef.current) return;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    const baseUrl = await getApiBaseUrl();
+    let wsUrl: string;
+    if (baseUrl) {
+      wsUrl = baseUrl.replace(/^http/, 'ws') + '/ws';
+    } else {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      wsUrl = `${protocol}//${window.location.host}/ws`;
+    }
+    const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
     setConnectionState('connecting');
 

@@ -207,10 +207,42 @@ export type WsEvent =
 
 export type WsEventType = WsEvent['type'];
 
+// ─── Electron bridge ─────────────────────────────────────────────────────────
+
+declare global {
+  interface Window {
+    electronAPI?: {
+      getBackendUrl: () => Promise<string>;
+      getWsUrl: () => Promise<string>;
+      onWsEvent: (callback: (event: { type: string; data: unknown }) => void) => void;
+      onNavigateToConversation: (callback: (conversationId: string) => void) => void;
+      openImageInPreview: (imageUrl: string) => Promise<{ success: boolean; error?: string }>;
+    };
+  }
+}
+
 // ─── API Client ──────────────────────────────────────────────────────────────
 
+/** Base URL for API requests — empty when served by Vite/backend, full URL in packaged Electron. */
+let _baseUrl = '';
+let _baseUrlResolved = false;
+
+async function getBaseUrl(): Promise<string> {
+  if (_baseUrlResolved) return _baseUrl;
+  if (window.electronAPI?.getBackendUrl && window.location.protocol === 'file:') {
+    _baseUrl = await window.electronAPI.getBackendUrl();
+  }
+  _baseUrlResolved = true;
+  return _baseUrl;
+}
+
+export async function getApiBaseUrl(): Promise<string> {
+  return getBaseUrl();
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, options);
+  const base = await getBaseUrl();
+  const res = await fetch(`${base}${url}`, options);
   if (!res.ok) {
     throw new Error(`API error ${res.status}: ${res.statusText}`);
   }
@@ -265,7 +297,7 @@ export function deleteMessage(messageId: string): Promise<void> {
 }
 
 export function avatarUrl(participantId: string): string {
-  return `/api/avatars/${encodeURIComponent(participantId)}`;
+  return `${_baseUrl}/api/avatars/${encodeURIComponent(participantId)}`;
 }
 
 export function fetchConversations(limit?: number, folder?: string): Promise<ConversationsResponse> {
@@ -305,7 +337,7 @@ export function sendMedia(convId: string, file: File, replyToId?: string): Promi
 }
 
 export function downloadMediaUrl(messageId: string, mediaId: string): string {
-  return `/api/media?messageId=${encodeURIComponent(messageId)}&mediaId=${encodeURIComponent(mediaId)}`;
+  return `${_baseUrl}/api/media?messageId=${encodeURIComponent(messageId)}&mediaId=${encodeURIComponent(mediaId)}`;
 }
 
 export function requestFullSizeImage(messageId: string, actionMessageId: string): Promise<void> {

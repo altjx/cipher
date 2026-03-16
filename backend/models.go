@@ -7,7 +7,7 @@ import (
 	"go.mau.fi/mautrix-gmessages/pkg/libgm/gmproto"
 )
 
-var systemChatWithPattern = regexp.MustCompile(`^(rcs chat with|texting with|chatting with|you're now chatting with) .+\((sms|sms/mms|rcs|chat)\)$`)
+var systemChatWithPattern = regexp.MustCompile(`^(rcs chat with|texting with|chatting with|you're now chatting with) .+?(\s*\((sms|sms/mms|rcs|chat)\))?$`)
 
 // API response types matching the API contract
 

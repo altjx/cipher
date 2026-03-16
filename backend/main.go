@@ -10,11 +10,17 @@ import (
 	"syscall"
 
 	"github.com/rs/zerolog"
+	"go.mau.fi/mautrix-gmessages/pkg/libgm/util"
 )
+
+func init() {
+	util.BrowserDetailsMessage.OS = "Android Messages for Mac"
+}
 
 func main() {
 	port := flag.Int("port", 8080, "HTTP server port")
 	dataDir := flag.String("data", "./data", "Data directory for session and database files")
+	frontendDir := flag.String("frontend", "", "Directory containing frontend static files to serve")
 	flag.Parse()
 
 	// Set up zerolog
@@ -49,7 +55,7 @@ func main() {
 
 	// Set up HTTP handlers and server
 	handlers := NewHandlers(gmClient, db)
-	server := NewServer(handlers, hub, logger)
+	server := NewServer(handlers, hub, logger, *frontendDir)
 
 	addr := fmt.Sprintf(":%d", *port)
 	logger.Info().Str("addr", addr).Msg("Starting HTTP server")
