@@ -36,6 +36,7 @@ func (s *Server) setupRoutes() {
 
 	// Conversations
 	s.router.HandleFunc("/api/conversations", s.handlers.ListConversations).Methods("GET", "OPTIONS")
+	s.router.HandleFunc("/api/conversations/{id}", s.handlers.DeleteConversation).Methods("DELETE", "OPTIONS")
 	s.router.HandleFunc("/api/conversations/{id}/messages", s.handlers.GetMessages).Methods("GET", "OPTIONS")
 	s.router.HandleFunc("/api/conversations/{id}/media", s.handlers.GetConversationMedia).Methods("GET", "OPTIONS")
 

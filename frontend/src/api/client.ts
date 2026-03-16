@@ -180,6 +180,13 @@ export interface WsQrRefresh {
   };
 }
 
+export interface WsConversationDeleted {
+  type: 'conversation_deleted';
+  data: {
+    conversationId: string;
+  };
+}
+
 export interface WsSessionExpired {
   type: 'session_expired';
   data: Record<string, never>;
@@ -192,6 +199,7 @@ export type WsEvent =
   | WsMessageStatus
   | WsTyping
   | WsConversationUpdate
+  | WsConversationDeleted
   | WsPhoneStatus
   | WsPairSuccess
   | WsQrRefresh
@@ -222,6 +230,10 @@ export function startPairing(): Promise<PairResponse> {
 
 export function unpair(): Promise<void> {
   return request<void>('/api/unpair', { method: 'POST' });
+}
+
+export function deleteConversation(convId: string): Promise<void> {
+  return request<void>(`/api/conversations/${encodeURIComponent(convId)}`, { method: 'DELETE' });
 }
 
 export function fetchConversations(limit?: number, folder?: string): Promise<ConversationsResponse> {

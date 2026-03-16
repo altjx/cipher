@@ -699,6 +699,45 @@ func (c *GMClient) SendReaction(conversationID, messageID, emoji string) error {
 	return err
 }
 
+// DeleteConversation deletes a conversation from Google's servers and the local cache.
+func (c *GMClient) DeleteConversation(conversationID string) error {
+	cli := c.GetClient()
+	if cli == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	// Look up the phone number from the conversation's non-me participant
+	phone := ""
+	conv, err := c.db.GetConversationByID(conversationID)
+	if err == nil && conv != nil {
+		for _, p := range conv.Participants {
+			if !p.IsMe && p.Number != "" {
+				phone = p.Number
+				break
+			}
+		}
+	}
+
+	if err := cli.DeleteConversation(conversationID, phone); err != nil {
+		return fmt.Errorf("failed to delete conversation: %w", err)
+	}
+
+	// Clean up local cache
+	if err := c.db.DeleteConversation(conversationID); err != nil {
+		c.logger.Warn().Err(err).Str("conv_id", conversationID).Msg("Failed to delete conversation from cache")
+	}
+
+	// Clean up cached metadata
+	c.convMetaMu.Lock()
+	delete(c.convMetas, conversationID)
+	c.convMetaMu.Unlock()
+
+	// Notify connected clients
+	c.hub.BroadcastConversationDeleted(conversationID)
+
+	return nil
+}
+
 // MarkRead marks a conversation as read up to a given message.
 func (c *GMClient) MarkRead(conversationID, messageID string) error {
 	cli := c.GetClient()

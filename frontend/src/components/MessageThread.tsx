@@ -32,6 +32,8 @@ interface MessageThreadProps {
   detailOpen: boolean;
   onToggleDetail: () => void;
   onShowParticipantDetail: (participantId: string) => void;
+  searchTrigger?: number;
+  refocusTrigger?: number;
 }
 
 function dateSeparatorLabel(ts: number): string {
@@ -54,7 +56,7 @@ function isSameDay(ts1: number, ts2: number): boolean {
 // In-memory cache so switching back to a conversation is instant
 const messageCache = new Map<string, { messages: Message[]; cursor: string | null; hasMore: boolean }>();
 
-export default function MessageThread({ conversationId, conversation, subscribe, targetMessageId, onTargetReached, detailOpen, onToggleDetail, onShowParticipantDetail: _onShowParticipantDetail }: MessageThreadProps) {
+export default function MessageThread({ conversationId, conversation, subscribe, targetMessageId, onTargetReached, detailOpen, onToggleDetail, onShowParticipantDetail: _onShowParticipantDetail, searchTrigger, refocusTrigger }: MessageThreadProps) {
   const cached = messageCache.get(conversationId);
   const [messages, setMessages] = useState<Message[]>(cached?.messages ?? []);
   const [text, setText] = useState('');
@@ -112,6 +114,22 @@ export default function MessageThread({ conversationId, conversation, subscribe,
   useEffect(() => {
     if (showSearch) searchInputRef.current?.focus();
   }, [showSearch]);
+
+  // Open search when triggered externally (Cmd+F)
+  useEffect(() => {
+    if (searchTrigger && searchTrigger > 0) {
+      setShowSearch(true);
+      setSearchQuery('');
+      // Focus happens via the showSearch effect above
+    }
+  }, [searchTrigger]);
+
+  // Refocus textarea when triggered (e.g. after closing spotlight)
+  useEffect(() => {
+    if (refocusTrigger && refocusTrigger > 0) {
+      textareaRef.current?.focus();
+    }
+  }, [refocusTrigger]);
 
   // Load messages on conversation change
   useEffect(() => {
@@ -740,6 +758,13 @@ export default function MessageThread({ conversationId, conversation, subscribe,
             placeholder="Search in conversation..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                setShowSearch(false);
+                setSearchQuery('');
+                textareaRef.current?.focus();
+              }
+            }}
             className="flex-1 bg-transparent text-sm text-[var(--text)] placeholder-[var(--text-3)] focus:outline-none"
           />
           {matchingIds !== null && (
@@ -755,7 +780,17 @@ export default function MessageThread({ conversationId, conversation, subscribe,
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-6 py-5"
+        onKeyDown={(e) => {
+          if (e.key === 'PageDown' || e.key === 'PageUp') {
+            e.preventDefault();
+            const el = scrollRef.current;
+            if (!el) return;
+            const delta = el.clientHeight * 0.85;
+            el.scrollBy({ top: e.key === 'PageDown' ? delta : -delta, behavior: 'smooth' });
+          }
+        }}
+        tabIndex={-1}
+        className="flex-1 overflow-y-auto px-6 py-5 focus:outline-none"
       >
         {loadingMore && (
           <div className="text-center text-[var(--text-3)] text-xs py-2">Loading older messages...</div>
