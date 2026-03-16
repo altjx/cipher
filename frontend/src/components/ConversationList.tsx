@@ -93,6 +93,8 @@ export default function ConversationList({
   // Map of conversationId -> set of typing names
   const [typingMap, setTypingMap] = useState<Map<string, Set<string>>>(new Map());
   const typingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Refs for scrolling selected conversation into view
+  const itemRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   // Context menu
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; convId: string; convName: string } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ convId: string; convName: string } | null>(null);
@@ -202,6 +204,16 @@ export default function ConversationList({
       .catch(() => {});
   }, [activeTab]);
 
+  // Auto-scroll to selected conversation when it changes (e.g. via command palette)
+  useEffect(() => {
+    if (!selectedId) return;
+    // Use requestAnimationFrame to ensure DOM has updated
+    requestAnimationFrame(() => {
+      const el = itemRefs.current.get(selectedId);
+      el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+  }, [selectedId]);
+
   // Focus search input when triggered externally (Cmd+S)
   useEffect(() => {
     if (focusSearchTrigger && focusSearchTrigger > 0) {
@@ -298,6 +310,7 @@ export default function ConversationList({
             return (
               <button
                 key={conv.id}
+                ref={(el) => { if (el) itemRefs.current.set(conv.id, el); else itemRefs.current.delete(conv.id); }}
                 onClick={() => onSelect(conv.id)}
                 className={`w-11 h-11 rounded-[14px] flex-shrink-0 flex items-center justify-center text-white text-[13px] font-semibold cursor-pointer transition-all relative ${
                   isSelected ? 'ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--surface-1)]' : 'hover:opacity-80'
@@ -422,6 +435,7 @@ export default function ConversationList({
               return (
                 <button
                   key={conv.id}
+                  ref={(el) => { if (el) itemRefs.current.set(conv.id, el); else itemRefs.current.delete(conv.id); }}
                   onClick={() => onSelect(conv.id)}
                   onContextMenu={(e) => handleContextMenu(e, conv.id, conv.name)}
                   className={`w-full flex items-center gap-3 px-3 py-3 text-left transition-all cursor-pointer rounded-[14px] mb-0.5 ${
