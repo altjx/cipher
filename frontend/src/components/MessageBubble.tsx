@@ -28,6 +28,28 @@ function formatTime(ts: number): string {
 }
 
 const EMOJI_RE = /\p{Extended_Pictographic}/gu;
+const URL_RE = /(https?:\/\/[^\s<]+)/g;
+
+function linkifyText(text: string): (string | React.ReactNode)[] {
+  const parts: (string | React.ReactNode)[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  URL_RE.lastIndex = 0;
+  while ((match = URL_RE.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    const url = match[0];
+    parts.push(
+      <a key={match.index} href={url} target="_blank" rel="noopener noreferrer" className="underline hover:opacity-80">{url}</a>
+    );
+    lastIndex = URL_RE.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+  return parts;
+}
 
 function getInitials(name: string): string {
   return name
@@ -185,6 +207,11 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
                 : 'bg-[var(--surface-2)] text-[var(--text)] rounded-[18px_18px_18px_6px]'
           } px-4 py-2.5 relative ${message.reactions.length > 0 ? 'mb-3' : ''}`}
           style={showGroupStyle ? { borderLeftColor: sColor } : undefined}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setHovered(true);
+            openReactionPicker();
+          }}
         >
           {/* Colored sender name inside bubble for group chats */}
           {showGroupStyle && showSender && message.sender.name && (
@@ -203,7 +230,7 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
           )}
 
           {message.text && (
-            <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{message.text}</p>
+            <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{linkifyText(message.text)}</p>
           )}
 
           <div className={`flex items-center gap-1 mt-1 ${isMe ? 'justify-end' : 'justify-start'} ${showTimestamp ? '' : 'hidden'}`}>

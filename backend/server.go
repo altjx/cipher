@@ -2,6 +2,8 @@ package main
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
@@ -14,7 +16,7 @@ type Server struct {
 	logger   zerolog.Logger
 }
 
-func NewServer(handlers *Handlers, hub *WSHub, logger zerolog.Logger) *Server {
+func NewServer(handlers *Handlers, hub *WSHub, logger zerolog.Logger, frontendDir string) *Server {
 	s := &Server{
 		router:   mux.NewRouter(),
 		handlers: handlers,
@@ -22,6 +24,22 @@ func NewServer(handlers *Handlers, hub *WSHub, logger zerolog.Logger) *Server {
 		logger:   logger.With().Str("component", "server").Logger(),
 	}
 	s.setupRoutes()
+
+	// Serve frontend static files if a directory is provided
+	if frontendDir != "" {
+		s.logger.Info().Str("dir", frontendDir).Msg("Serving frontend static files")
+		fs := http.FileServer(http.Dir(frontendDir))
+		s.router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// If the file exists, serve it; otherwise serve index.html (SPA fallback)
+			path := filepath.Join(frontendDir, r.URL.Path)
+			if _, err := os.Stat(path); os.IsNotExist(err) {
+				http.ServeFile(w, r, filepath.Join(frontendDir, "index.html"))
+				return
+			}
+			fs.ServeHTTP(w, r)
+		})
+	}
+
 	return s
 }
 
@@ -82,6 +100,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 		allowedOrigins := map[string]bool{
 			"http://localhost:5173": true,
 			"http://localhost:8080": true,
+			"null":                 true, // Electron file:// origin
 		}
 
 		if allowedOrigins[origin] {
