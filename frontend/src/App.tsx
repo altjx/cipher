@@ -21,13 +21,17 @@ export default function App() {
   const [detailParticipantId, setDetailParticipantId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [paletteInitialMode, setPaletteInitialMode] = useState<'commands' | 'goto'>('commands');
+  const [paletteInitialMode, setPaletteInitialMode] = useState<'commands' | 'goto' | 'themes'>('commands');
   const [deleteConfirm, setDeleteConfirm] = useState<{ convId: string; convName: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [refocusTrigger, setRefocusTrigger] = useState(0);
   const [searchTrigger, setSearchTrigger] = useState(0);        // Cmd+F: find in conversation
   const [globalSearchTrigger, setGlobalSearchTrigger] = useState(0); // Cmd+S: search all
   const [composeOpen, setComposeOpen] = useState(false);
+  const [emojiInsert, setEmojiInsert] = useState<{ emoji: string; seq: number }>({ emoji: '', seq: 0 });
+  const [reactionEmoji, setReactionEmoji] = useState<{ emoji: string; seq: number }>({ emoji: '', seq: 0 });
+  const reactChordArmed = useRef(false);
+  const reactChordTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const deletedIdsRef = useRef<Set<string>>(new Set());
   const { subscribe, connectionState } = useWebSocket();
@@ -165,18 +169,65 @@ export default function App() {
     }
   }, [sortedConversations, selectedConversationId, handleSelectConversation]);
 
+  // Emoji shortcut mapping: Cmd+# inserts, Cmd+Opt+# reacts
+  const EMOJI_SHORTCUTS: Record<string, string> = {
+    '1': '\u{1F4AF}', // 💯
+    '2': '\u2764\uFE0F', // ❤️
+    '3': '\u{1F602}', // 😂
+    '4': '\u{1F44D}', // 👍
+    '5': '\u{1F62E}', // 😮
+    '6': '\u{1F622}', // 😢
+    '7': '\u{1F64F}', // 🙏
+  };
+
   // Global keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (view !== 'main') return;
 
+      // Second step of react chord: bare 1-7 after Cmd+E
+      if (reactChordArmed.current && EMOJI_SHORTCUTS[e.key] && selectedConversationId) {
+        e.preventDefault();
+        reactChordArmed.current = false;
+        if (reactChordTimer.current) { clearTimeout(reactChordTimer.current); reactChordTimer.current = null; }
+        setReactionEmoji((prev) => ({ emoji: EMOJI_SHORTCUTS[e.key], seq: prev.seq + 1 }));
+        return;
+      }
+      // Cancel chord on any other key
+      if (reactChordArmed.current) {
+        reactChordArmed.current = false;
+        if (reactChordTimer.current) { clearTimeout(reactChordTimer.current); reactChordTimer.current = null; }
+      }
+
       const isMeta = e.metaKey || e.ctrlKey;
       if (!isMeta) return;
+
+      // Cmd+1-7: insert emoji into input
+      const emoji = EMOJI_SHORTCUTS[e.key];
+      if (emoji && selectedConversationId) {
+        e.preventDefault();
+        setEmojiInsert((prev) => ({ emoji, seq: prev.seq + 1 }));
+        return;
+      }
+
+      // Cmd+X: arm react chord (then press 1-7)
+      if (e.key === 'x' && selectedConversationId) {
+        e.preventDefault();
+        reactChordArmed.current = true;
+        if (reactChordTimer.current) clearTimeout(reactChordTimer.current);
+        reactChordTimer.current = setTimeout(() => { reactChordArmed.current = false; reactChordTimer.current = null; }, 2000);
+        return;
+      }
 
       switch (e.key) {
         case 'n': // Cmd+N: New conversation
           e.preventDefault();
           setComposeOpen(true);
+          break;
+        case 't': // Cmd+T: Change theme
+          e.preventDefault();
+          setPaletteInitialMode('themes');
+          setPaletteOpen(true);
           break;
         case 'k': // Cmd+K: Command palette
           e.preventDefault();
@@ -329,6 +380,8 @@ export default function App() {
           onShowParticipantDetail={handleShowParticipantDetail}
           searchTrigger={searchTrigger}
           refocusTrigger={refocusTrigger}
+          emojiInsert={emojiInsert}
+          reactionEmoji={reactionEmoji}
         />
       ) : (
         <div className="flex-1 bg-[var(--surface-1)] rounded-[20px] shadow-[0_4px_24px_rgba(0,0,0,0.2)] flex flex-col">

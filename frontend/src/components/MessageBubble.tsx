@@ -84,7 +84,7 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
         <span className="text-xs text-[var(--text-2)] ml-1 mb-0.5">{message.sender.name}</span>
       )}
 
-      <div className="flex items-end gap-2 relative">
+      <div className="flex items-end gap-2 relative max-w-[50%]">
         {/* Group chat avatar */}
         {showGroupStyle && showSender && (
           <div
@@ -153,7 +153,7 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
               : showGroupStyle
                 ? 'bg-[var(--surface-2)] text-[var(--text)] rounded-[4px_18px_18px_4px] border-l-[3px]'
                 : 'bg-[var(--surface-2)] text-[var(--text)] rounded-[18px_18px_18px_6px]'
-          } px-4 py-2.5 max-w-md relative ${message.reactions.length > 0 ? 'mb-3' : ''}`}
+          } px-4 py-2.5 relative ${message.reactions.length > 0 ? 'mb-3' : ''}`}
           style={showGroupStyle ? { borderLeftColor: sColor } : undefined}
         >
           {/* Colored sender name inside bubble for group chats */}
