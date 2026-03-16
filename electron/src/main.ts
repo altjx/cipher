@@ -68,6 +68,10 @@ function getBackendBinaryPath(): string {
   return path.join(process.resourcesPath, 'backend');
 }
 
+function getFrontendDir(): string {
+  return path.join(process.resourcesPath, 'frontend');
+}
+
 function getDataDir(): string {
   return path.join(app.getPath('userData'), 'google-messages-data');
 }
@@ -105,10 +109,17 @@ async function spawnBackend(): Promise<void> {
   console.log('[electron] Spawning backend:', binaryPath);
   console.log('[electron] Data dir:', dataDir);
 
-  backendProcess = spawn(binaryPath, [
+  const args = [
     '--port', String(BACKEND_PORT),
-    '--data-dir', dataDir,
-  ], {
+    '--data', dataDir,
+  ];
+
+  // In production, have the backend serve the frontend static files
+  if (!isDev) {
+    args.push('--frontend', getFrontendDir());
+  }
+
+  backendProcess = spawn(binaryPath, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -342,8 +353,7 @@ function createWindow(): void {
     mainWindow.loadURL(DEV_FRONTEND_URL);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    const frontendPath = path.join(process.resourcesPath, 'frontend', 'index.html');
-    mainWindow.loadFile(frontendPath);
+    mainWindow.loadURL(BACKEND_URL);
   }
 
   // Show when ready
