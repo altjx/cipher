@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, MessageCircle, PanelLeftClose, PanelLeftOpen, Trash2 } from 'lucide-react';
+import { Search, MessageCircle, PanelLeftClose, PanelLeftOpen, Trash2, Archive, BellOff, Ban, SquarePen } from 'lucide-react';
 import type { Conversation, WsConversationUpdate, WsTyping, SearchResult } from '../api/client';
-import { searchMessages, fetchConversations, deleteConversation } from '../api/client';
+import { searchMessages, fetchConversations, deleteConversation, archiveConversation, muteConversation, blockConversation } from '../api/client';
 import { avatarGradient } from '../utils/avatarGradient';
 
 interface ConversationListProps {
@@ -18,9 +18,10 @@ interface ConversationListProps {
   collapsed: boolean;
   onToggleCollapse: () => void;
   focusSearchTrigger?: number;
+  onCompose?: () => void;
 }
 
-type TabType = 'all' | 'unread' | 'groups' | 'archived';
+type TabType = 'all' | 'unread' | 'groups' | 'archived' | 'spam';
 
 const EMOJI_RE = /\p{Extended_Pictographic}/gu;
 
@@ -82,6 +83,7 @@ export default function ConversationList({
   collapsed,
   onToggleCollapse,
   focusSearchTrigger,
+  onCompose,
 }: ConversationListProps) {
   const [search, setSearch] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -89,6 +91,7 @@ export default function ConversationList({
   const [searchLoading, setSearchLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('all');
   const [archivedConvs, setArchivedConvs] = useState<Conversation[]>([]);
+  const [spamConvs, setSpamConvs] = useState<Conversation[]>([]);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   // Map of conversationId -> set of typing names
   const [typingMap, setTypingMap] = useState<Map<string, Set<string>>>(new Map());
@@ -204,6 +207,14 @@ export default function ConversationList({
       .catch(() => {});
   }, [activeTab]);
 
+  // Load spam/blocked conversations when tab is switched
+  useEffect(() => {
+    if (activeTab !== 'spam') return;
+    fetchConversations(50, 'spam_blocked')
+      .then((res) => setSpamConvs(res.conversations))
+      .catch(() => {});
+  }, [activeTab]);
+
   // Auto-scroll to selected conversation when it changes (e.g. via command palette)
   useEffect(() => {
     if (!selectedId) return;
@@ -260,6 +271,8 @@ export default function ConversationList({
   let filtered: Conversation[];
   if (activeTab === 'archived') {
     filtered = archivedConvs;
+  } else if (activeTab === 'spam') {
+    filtered = spamConvs;
   } else if (activeTab === 'unread') {
     filtered = sorted.filter((c) => c.unread);
   } else if (activeTab === 'groups') {
@@ -355,6 +368,15 @@ export default function ConversationList({
           <span className={`ml-auto text-[11px] font-medium ${status.color} ${status.bg} px-2.5 py-0.5 rounded-full`}>
             {status.label}
           </span>
+          {onCompose && (
+            <button
+              onClick={onCompose}
+              className="w-9 h-9 rounded-[10px] flex items-center justify-center text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text)] transition-all cursor-pointer"
+              title="New conversation (Cmd+N)"
+            >
+              <SquarePen className="w-[18px] h-[18px]" />
+            </button>
+          )}
         </div>
 
         {/* Search */}
@@ -372,7 +394,7 @@ export default function ConversationList({
 
         {/* Tabs */}
         <div className="flex gap-1 pb-3">
-          {(['all', 'unread', 'groups', 'archived'] as TabType[]).map((tab) => (
+          {(['all', 'unread', 'groups', 'archived', 'spam'] as TabType[]).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -481,7 +503,7 @@ export default function ConversationList({
 
             {filtered.length === 0 && (
               <div className="text-center text-[var(--text-3)] text-sm mt-8">
-                {search ? 'No conversations found' : activeTab === 'archived' ? 'No archived conversations' : 'No conversations yet'}
+                {search ? 'No conversations found' : activeTab === 'archived' ? 'No archived conversations' : activeTab === 'spam' ? 'No spam or blocked conversations' : 'No conversations yet'}
               </div>
             )}
           </>
@@ -491,9 +513,53 @@ export default function ConversationList({
       {/* Context menu */}
       {contextMenu && (
         <div
-          className="fixed z-50 bg-[var(--surface-2)] border border-[var(--border)] rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] py-1.5 min-w-[160px]"
+          className="fixed z-50 bg-[var(--surface-2)] border border-[var(--border)] rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] py-1.5 min-w-[180px]"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              const convId = contextMenu.convId;
+              const isArchived = activeTab === 'archived';
+              archiveConversation(convId, !isArchived).then(() => {
+                if (!isArchived) {
+                  onConversationsUpdate((prev) => prev.filter((c) => c.id !== convId));
+                } else {
+                  setArchivedConvs((prev) => prev.filter((c) => c.id !== convId));
+                }
+              }).catch(() => {});
+              setContextMenu(null);
+            }}
+            className="w-full flex items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-[var(--text)] hover:bg-[rgba(255,255,255,0.05)] transition-colors cursor-pointer"
+          >
+            <Archive className="w-4 h-4" />
+            {activeTab === 'archived' ? 'Unarchive' : 'Archive'}
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              muteConversation(contextMenu.convId, true).catch(() => {});
+              setContextMenu(null);
+            }}
+            className="w-full flex items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-[var(--text)] hover:bg-[rgba(255,255,255,0.05)] transition-colors cursor-pointer"
+          >
+            <BellOff className="w-4 h-4" />
+            Mute
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              blockConversation(contextMenu.convId, true).then(() => {
+                onConversationsUpdate((prev) => prev.filter((c) => c.id !== contextMenu.convId));
+              }).catch(() => {});
+              setContextMenu(null);
+            }}
+            className="w-full flex items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-orange-400 hover:bg-[rgba(255,255,255,0.05)] transition-colors cursor-pointer"
+          >
+            <Ban className="w-4 h-4" />
+            Block
+          </button>
+          <div className="border-t border-[var(--border)] my-1" />
           <button
             onClick={(e) => {
               e.stopPropagation();

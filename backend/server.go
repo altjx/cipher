@@ -36,18 +36,27 @@ func (s *Server) setupRoutes() {
 
 	// Conversations
 	s.router.HandleFunc("/api/conversations", s.handlers.ListConversations).Methods("GET", "OPTIONS")
+	s.router.HandleFunc("/api/conversations", s.handlers.CreateConversation).Methods("POST", "OPTIONS")
 	s.router.HandleFunc("/api/conversations/{id}", s.handlers.DeleteConversation).Methods("DELETE", "OPTIONS")
 	s.router.HandleFunc("/api/conversations/{id}/messages", s.handlers.GetMessages).Methods("GET", "OPTIONS")
 	s.router.HandleFunc("/api/conversations/{id}/media", s.handlers.GetConversationMedia).Methods("GET", "OPTIONS")
+	s.router.HandleFunc("/api/conversations/{id}/details", s.handlers.GetConversationDetails).Methods("GET", "OPTIONS")
+	s.router.HandleFunc("/api/conversations/{id}/archive", s.handlers.ArchiveConversation).Methods("POST", "OPTIONS")
+	s.router.HandleFunc("/api/conversations/{id}/mute", s.handlers.MuteConversation).Methods("POST", "OPTIONS")
+	s.router.HandleFunc("/api/conversations/{id}/block", s.handlers.BlockConversation).Methods("POST", "OPTIONS")
 
 	// Messaging
 	s.router.HandleFunc("/api/messages", s.handlers.SendMessage).Methods("POST", "OPTIONS")
 	s.router.HandleFunc("/api/messages/media", s.handlers.SendMedia).Methods("POST", "OPTIONS")
+	s.router.HandleFunc("/api/messages/{id}", s.handlers.DeleteMessage).Methods("DELETE", "OPTIONS")
 	s.router.HandleFunc("/api/media", s.handlers.GetMedia).Methods("GET", "OPTIONS")
 	s.router.HandleFunc("/api/media/full-size", s.handlers.RequestFullSizeImage).Methods("POST", "OPTIONS")
 
 	// Reactions
 	s.router.HandleFunc("/api/reactions", s.handlers.SendReaction).Methods("POST", "OPTIONS")
+
+	// Typing Indicators
+	s.router.HandleFunc("/api/typing", s.handlers.SetTyping).Methods("POST", "OPTIONS")
 
 	// Read Receipts
 	s.router.HandleFunc("/api/mark-read", s.handlers.MarkRead).Methods("POST", "OPTIONS")
@@ -57,6 +66,10 @@ func (s *Server) setupRoutes() {
 
 	// Contacts
 	s.router.HandleFunc("/api/contacts", s.handlers.ListContacts).Methods("GET", "OPTIONS")
+	s.router.HandleFunc("/api/contacts/search", s.handlers.SearchContacts).Methods("GET", "OPTIONS")
+
+	// Avatars
+	s.router.HandleFunc("/api/avatars/{id}", s.handlers.GetParticipantThumbnail).Methods("GET", "OPTIONS")
 
 	// WebSocket
 	s.router.HandleFunc("/ws", s.hub.HandleWS)

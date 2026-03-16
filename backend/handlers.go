@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os/exec"
 	"strconv"
@@ -128,10 +129,10 @@ func (h *Handlers) SendMessage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// SendMedia sends a media message.
+// SendMedia sends a media message (single or multiple files).
 // POST /api/messages/media
 func (h *Handlers) SendMedia(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(32 << 20); err != nil { // 32 MB max
+	if err := r.ParseMultipartForm(64 << 20); err != nil { // 64 MB max for multi-file
 		writeError(w, http.StatusBadRequest, "Failed to parse multipart form")
 		return
 	}
@@ -144,7 +145,50 @@ func (h *Handlers) SendMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, header, err := r.FormFile("file")
+	// Check for multiple files under "files" key first, then fall back to single "file"
+	multiFiles := r.MultipartForm.File["files"]
+	if len(multiFiles) > 1 {
+		// Multi-file path
+		var files []MediaFile
+		for _, fh := range multiFiles {
+			f, err := fh.Open()
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "Failed to open file: "+fh.Filename)
+				return
+			}
+			data, err := io.ReadAll(f)
+			f.Close()
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "Failed to read file: "+fh.Filename)
+				return
+			}
+			mimeType := fh.Header.Get("Content-Type")
+			if mimeType == "" {
+				mimeType = "application/octet-stream"
+			}
+			files = append(files, MediaFile{Data: data, FileName: fh.Filename, MimeType: mimeType})
+		}
+
+		resp, err := h.client.SendMultiMedia(conversationID, files, replyToID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "Failed to send media: "+err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+
+	// Single file path (backward compatible with "file" or single "files")
+	var file io.ReadCloser
+	var header *multipart.FileHeader
+	var err error
+
+	if len(multiFiles) == 1 {
+		file, err = multiFiles[0].Open()
+		header = multiFiles[0]
+	} else {
+		file, header, err = r.FormFile("file")
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "file is required")
 		return
@@ -306,12 +350,203 @@ func (h *Handlers) MarkRead(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// CreateConversation creates a new conversation with given phone numbers.
+// POST /api/conversations
+func (h *Handlers) CreateConversation(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Numbers []string `json:"numbers"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if len(req.Numbers) == 0 {
+		writeError(w, http.StatusBadRequest, "At least one phone number is required")
+		return
+	}
+
+	conv, err := h.client.CreateConversation(req.Numbers)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to create conversation: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, conv)
+}
+
+// GetConversationDetails returns full details for a conversation.
+// GET /api/conversations/:id/details
+func (h *Handlers) GetConversationDetails(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	conversationID := vars["id"]
+
+	conv, err := h.client.GetConversationDetails(conversationID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to get conversation details: "+err.Error())
+		return
+	}
+	if conv == nil {
+		writeError(w, http.StatusNotFound, "Conversation not found")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, conv)
+}
+
+// ArchiveConversation archives or unarchives a conversation.
+// POST /api/conversations/:id/archive
+func (h *Handlers) ArchiveConversation(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	conversationID := vars["id"]
+
+	var req struct {
+		Archive bool `json:"archive"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if err := h.client.ArchiveConversation(conversationID, req.Archive); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to archive conversation: "+err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// MuteConversation mutes or unmutes a conversation.
+// POST /api/conversations/:id/mute
+func (h *Handlers) MuteConversation(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	conversationID := vars["id"]
+
+	var req struct {
+		Mute bool `json:"mute"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if err := h.client.MuteConversation(conversationID, req.Mute); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to mute conversation: "+err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// BlockConversation blocks or unblocks a conversation.
+// POST /api/conversations/:id/block
+func (h *Handlers) BlockConversation(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	conversationID := vars["id"]
+
+	var req struct {
+		Block bool `json:"block"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if err := h.client.BlockConversation(conversationID, req.Block); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to block conversation: "+err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// DeleteMessage deletes a single message.
+// DELETE /api/messages/:id
+func (h *Handlers) DeleteMessage(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	messageID := vars["id"]
+
+	if err := h.client.DeleteMessage(messageID); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to delete message: "+err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetParticipantThumbnail returns an avatar image for a participant.
+// GET /api/avatars/:id
+func (h *Handlers) GetParticipantThumbnail(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	participantID := vars["id"]
+
+	thumbnails, err := h.client.GetParticipantThumbnails([]string{participantID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to get thumbnail: "+err.Error())
+		return
+	}
+
+	data, ok := thumbnails[participantID]
+	if !ok || len(data) == 0 {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
+}
+
+// SetTyping sends a typing indicator for a conversation.
+// POST /api/typing
+func (h *Handlers) SetTyping(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ConversationID string `json:"conversationId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.ConversationID == "" {
+		writeError(w, http.StatusBadRequest, "conversationId is required")
+		return
+	}
+
+	if err := h.client.SetTyping(req.ConversationID); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to send typing indicator: "+err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // ListContacts returns the contact list.
 // GET /api/contacts
 func (h *Handlers) ListContacts(w http.ResponseWriter, r *http.Request) {
 	contacts, err := h.client.ListContacts()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to list contacts: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, ContactListResponse{Contacts: contacts})
+}
+
+// SearchContacts searches the phone's full contact list by name.
+// GET /api/contacts/search?q=...
+func (h *Handlers) SearchContacts(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		writeJSON(w, http.StatusOK, ContactListResponse{Contacts: []ContactResponse{}})
+		return
+	}
+
+	contacts, err := h.client.SearchContacts(query)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to search contacts: "+err.Error())
 		return
 	}
 
