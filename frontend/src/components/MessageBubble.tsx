@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useLayoutEffect } from 'react';
 import { MessageSquareReply, SmilePlus, Check, CheckCheck, Trash2, RotateCcw } from 'lucide-react';
 import type { Message } from '../api/client';
 import MediaPlayer from './MediaPlayer';
@@ -10,6 +10,8 @@ interface MessageBubbleProps {
   showSender: boolean;
   onReply: (message: Message) => void;
   onReact: (messageId: string, emoji: string) => void;
+  onRemoveReaction?: (messageId: string, emoji: string) => void;
+  myParticipantId?: string;
   onDelete?: (messageId: string) => void;
   onResend?: (message: Message) => void;
   onImageClick?: (url: string) => void;
@@ -56,9 +58,36 @@ function StatusIcon({ status }: { status: Message['status'] }) {
   }
 }
 
-export default function MessageBubble({ message, isMe, showSender, onReply, onReact, onDelete, onResend, onImageClick, onImageLoad, conversationName, showTimestamp, isGroup, senderColor: sColor }: MessageBubbleProps) {
+export default function MessageBubble({ message, isMe, showSender, onReply, onReact, onRemoveReaction, myParticipantId, onDelete, onResend, onImageClick, onImageLoad, conversationName, showTimestamp, isGroup, senderColor: sColor }: MessageBubbleProps) {
   const [hovered, setHovered] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const savedScrollRef = useRef<{ el: HTMLElement; top: number } | null>(null);
+
+  // Restore scroll position after the emoji picker renders and steals focus
+  useLayoutEffect(() => {
+    if (showReactions && savedScrollRef.current) {
+      const { el, top } = savedScrollRef.current;
+      // Restore immediately (catches synchronous layout shifts)
+      el.scrollTop = top;
+      // Also restore after a frame (catches async focus-driven scrolling from the picker)
+      requestAnimationFrame(() => { el.scrollTop = top; });
+      savedScrollRef.current = null;
+    }
+  }, [showReactions]);
+
+  const openReactionPicker = () => {
+    // Find the scrollable ancestor and save its scroll position
+    let el = rootRef.current?.parentElement;
+    while (el) {
+      if (el.scrollHeight > el.clientHeight && getComputedStyle(el).overflowY !== 'visible') {
+        savedScrollRef.current = { el, top: el.scrollTop };
+        break;
+      }
+      el = el.parentElement;
+    }
+    setShowReactions(true);
+  };
 
   // System messages render as centered, muted text — not as chat bubbles
   if (message.isSystemMessage) {
@@ -76,6 +105,7 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
 
   return (
     <div
+      ref={rootRef}
       className={`flex flex-col ${alignment} mb-1 group relative`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { if (!showReactions) { setHovered(false); } }}
@@ -99,7 +129,7 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
         )}
 
         {isMe && hovered && (
-          <div className="flex gap-0.5 mr-1">
+          <div className="absolute right-full bottom-0 flex gap-0.5 mr-1">
             {message.status === 'failed' && onResend && (
               <button
                 onClick={() => onResend(message)}
@@ -117,7 +147,7 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
             </button>
             <div className="relative">
               <button
-                onClick={() => setShowReactions(true)}
+                onClick={() => openReactionPicker()}
                 className="p-1 rounded hover:bg-[var(--surface-3)] transition-colors text-[var(--text-3)] hover:text-[var(--text)]"
               >
                 <SmilePlus className="w-3.5 h-3.5" />
@@ -183,20 +213,28 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
 
           {message.reactions.length > 0 && (
             <div className={`absolute -bottom-3 ${isMe ? 'left-2' : 'right-2'} flex gap-0.5`}>
-              {message.reactions.map((r) => (
-                <span
-                  key={r.emoji}
-                  className="bg-[var(--surface-3)] rounded-full px-1.5 py-0.5 text-xs border border-[var(--border)] shadow-sm"
-                >
-                  {r.emoji}{r.senderIds.length > 1 ? ` ${r.senderIds.length}` : ''}
-                </span>
-              ))}
+              {message.reactions.map((r) => {
+                const isMine = myParticipantId ? r.senderIds.includes(myParticipantId) : false;
+                return (
+                  <button
+                    key={r.emoji}
+                    onClick={isMine && onRemoveReaction ? () => onRemoveReaction(message.id, r.emoji) : undefined}
+                    className={`bg-[var(--surface-3)] rounded-full px-1.5 py-0.5 text-xs border shadow-sm transition-colors ${
+                      isMine
+                        ? 'border-[var(--accent)]/50 hover:bg-[var(--surface-2)] cursor-pointer'
+                        : 'border-[var(--border)] cursor-default'
+                    }`}
+                  >
+                    {r.emoji}{r.senderIds.length > 1 ? ` ${r.senderIds.length}` : ''}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
 
         {!isMe && hovered && (
-          <div className="flex gap-0.5 ml-1">
+          <div className="absolute left-full bottom-0 flex gap-0.5 ml-1">
             <button
               onClick={() => onReply(message)}
               className="p-1 rounded hover:bg-[var(--surface-3)] transition-colors text-[var(--text-3)] hover:text-[var(--text)]"
@@ -205,7 +243,7 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
             </button>
             <div className="relative">
               <button
-                onClick={() => setShowReactions(true)}
+                onClick={() => openReactionPicker()}
                 className="p-1 rounded hover:bg-[var(--surface-3)] transition-colors text-[var(--text-3)] hover:text-[var(--text)]"
               >
                 <SmilePlus className="w-3.5 h-3.5" />

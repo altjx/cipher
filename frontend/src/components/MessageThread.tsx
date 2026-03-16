@@ -154,13 +154,18 @@ export default function MessageThread({ conversationId, conversation, subscribe,
     handleEmojiSelect(emojiInsert.emoji);
   }, [emojiInsert?.seq]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // React to last non-me message via keyboard shortcut (Cmd+Opt+1-7)
+  // React to last non-me message via keyboard shortcut (Cmd+X+1-7) — toggles if already applied
   useEffect(() => {
     if (!reactionEmoji || reactionEmoji.seq === 0) return;
+    const meId = conversation?.participants.find((p) => p.isMe)?.id;
     // Find the last message from someone else
     for (let idx = messages.length - 1; idx >= 0; idx--) {
       if (!messages[idx].sender.isMe) {
-        sendReaction(conversationId, messages[idx].id, reactionEmoji.emoji).catch(() => {});
+        const msg = messages[idx];
+        const existing = meId && msg.reactions.find((r) => r.emoji === reactionEmoji.emoji && r.senderIds.includes(meId));
+        // Toggle: remove if already applied, add otherwise
+        const emoji = existing ? '' : reactionEmoji.emoji;
+        sendReaction(conversationId, msg.id, emoji).catch(() => {});
         break;
       }
     }
@@ -452,6 +457,8 @@ export default function MessageThread({ conversationId, conversation, subscribe,
 
     setText('');
     setReplyTo(null);
+    // Reset textarea height after clearing
+    if (textareaRef.current) textareaRef.current.style.height = '';
     setTimeout(scrollToBottom, 100);
   }, [conversationId, text, stagedFiles, replyTo, scrollToBottom]);
 
@@ -462,8 +469,26 @@ export default function MessageThread({ conversationId, conversation, subscribe,
     }
   };
 
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData.files).filter(
+      (f) => f.type.startsWith('image/') || f.type.startsWith('video/')
+    );
+    if (files.length > 0) {
+      e.preventDefault();
+      setStagedFiles((prev) => [...prev, ...files]);
+    }
+  }, []);
+
+  const autoResizeTextarea = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
+  }, []);
+
   const handleTextChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value);
+    autoResizeTextarea();
     if (e.target.value) {
       const now = Date.now();
       if (now - lastTypingSentRef.current > 3000) {
@@ -471,7 +496,7 @@ export default function MessageThread({ conversationId, conversation, subscribe,
         setTyping(conversationId).catch(() => {});
       }
     }
-  }, [conversationId]);
+  }, [conversationId, autoResizeTextarea]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -521,6 +546,10 @@ export default function MessageThread({ conversationId, conversation, subscribe,
 
   const handleReact = useCallback((msgId: string, emoji: string) => {
     sendReaction(conversationId, msgId, emoji).catch(() => {});
+  }, [conversationId]);
+
+  const handleRemoveReaction = useCallback((msgId: string, _emoji: string) => {
+    sendReaction(conversationId, msgId, '').catch(() => {});
   }, [conversationId]);
 
   const handleDeleteMessage = useCallback((msgId: string) => {
@@ -680,6 +709,8 @@ export default function MessageThread({ conversationId, conversation, subscribe,
     ? otherParticipants.map((p) => p.name).join(', ')
     : 'RCS';
 
+  const myParticipantId = useMemo(() => conversation?.participants.find((p) => p.isMe)?.id, [conversation]);
+
   // Map sender IDs to colors for group chats
   const senderColorMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -761,6 +792,8 @@ export default function MessageThread({ conversationId, conversation, subscribe,
           showSender={showSender}
           onReply={handleReply}
           onReact={handleReact}
+          onRemoveReaction={handleRemoveReaction}
+          myParticipantId={myParticipantId}
           onDelete={msg.sender.isMe ? handleDeleteMessage : undefined}
           onResend={msg.sender.isMe && msg.status === 'failed' ? handleResend : undefined}
           onImageClick={msgImages.length > 0 ? (url: string) => handleImageClick(url, msgImages) : undefined}
@@ -1012,10 +1045,11 @@ export default function MessageThread({ conversationId, conversation, subscribe,
             value={text}
             onChange={handleTextChange}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder="Type a message..."
             rows={1}
-            className="flex-1 bg-transparent text-[var(--text)] text-sm py-2 px-2 focus:outline-none resize-none placeholder-[var(--text-3)] font-[inherit]"
-            style={{ maxHeight: '120px', minHeight: '36px' }}
+            className="flex-1 bg-transparent text-[var(--text)] text-sm py-2 px-2 focus:outline-none resize-none placeholder-[var(--text-3)] font-[inherit] min-h-[36px] overflow-y-auto"
+            style={{ maxHeight: '120px' }}
           />
 
           <div className="relative">
