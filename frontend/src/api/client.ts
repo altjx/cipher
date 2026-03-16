@@ -236,6 +236,38 @@ export function deleteConversation(convId: string): Promise<void> {
   return request<void>(`/api/conversations/${encodeURIComponent(convId)}`, { method: 'DELETE' });
 }
 
+export function archiveConversation(convId: string, archive: boolean): Promise<void> {
+  return request<void>(`/api/conversations/${encodeURIComponent(convId)}/archive`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ archive }),
+  });
+}
+
+export function muteConversation(convId: string, mute: boolean): Promise<void> {
+  return request<void>(`/api/conversations/${encodeURIComponent(convId)}/mute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mute }),
+  });
+}
+
+export function blockConversation(convId: string, block: boolean): Promise<void> {
+  return request<void>(`/api/conversations/${encodeURIComponent(convId)}/block`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ block }),
+  });
+}
+
+export function deleteMessage(messageId: string): Promise<void> {
+  return request<void>(`/api/messages/${encodeURIComponent(messageId)}`, { method: 'DELETE' });
+}
+
+export function avatarUrl(participantId: string): string {
+  return `/api/avatars/${encodeURIComponent(participantId)}`;
+}
+
 export function fetchConversations(limit?: number, folder?: string): Promise<ConversationsResponse> {
   const params = new URLSearchParams();
   if (limit !== undefined) params.set('limit', String(limit));
@@ -293,6 +325,27 @@ export function sendReaction(convId: string, msgId: string, emoji: string): Prom
   });
 }
 
+export function setTyping(conversationId: string): Promise<void> {
+  return request<void>('/api/typing', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conversationId }),
+  });
+}
+
+export function sendMultiMedia(convId: string, files: File[], replyToId?: string): Promise<SendMessageResponse> {
+  const form = new FormData();
+  form.append('conversationId', convId);
+  for (const file of files) {
+    form.append('files', file);
+  }
+  if (replyToId) form.append('replyToId', replyToId);
+  return request<SendMessageResponse>('/api/messages/media', {
+    method: 'POST',
+    body: form,
+  });
+}
+
 export function markRead(convId: string, msgId: string): Promise<void> {
   const body: MarkReadRequest = { conversationId: convId, messageId: msgId };
   return request<void>('/api/mark-read', {
@@ -302,8 +355,24 @@ export function markRead(convId: string, msgId: string): Promise<void> {
   });
 }
 
+export function createConversation(numbers: string[]): Promise<Conversation> {
+  return request<Conversation>('/api/conversations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ numbers }),
+  });
+}
+
+export function getConversationDetails(convId: string): Promise<Conversation> {
+  return request<Conversation>(`/api/conversations/${encodeURIComponent(convId)}/details`);
+}
+
 export function fetchContacts(): Promise<ContactsResponse> {
   return request<ContactsResponse>('/api/contacts');
+}
+
+export function searchContacts(query: string): Promise<ContactsResponse> {
+  return request<ContactsResponse>(`/api/contacts/search?q=${encodeURIComponent(query)}`);
 }
 
 // Search

@@ -339,9 +339,9 @@ func ConvertContact(c *gmproto.Contact) ContactResponse {
 	}
 }
 
-// isSystemMessage detects RCS/system notification messages that aren't real messages.
-// These include "RCS chat with ...", "You're now chatting with ...", encryption notices, etc.
-func isSystemMessage(text string, msg *gmproto.Message) bool {
+// IsSystemMessageText checks if message text matches known system/notification patterns.
+// Exported so db.go can reuse it when loading cached messages.
+func IsSystemMessageText(text string) bool {
 	lower := strings.ToLower(text)
 	systemPrefixes := []string{
 		"rcs chat with",
@@ -364,6 +364,16 @@ func isSystemMessage(text string, msg *gmproto.Message) bool {
 
 	// Group chat creation messages like "X created this group chat with you and N others"
 	if strings.Contains(lower, "created this group chat") {
+		return true
+	}
+
+	return false
+}
+
+// isSystemMessage detects RCS/system notification messages that aren't real messages.
+// These include "RCS chat with ...", "You're now chatting with ...", encryption notices, etc.
+func isSystemMessage(text string, msg *gmproto.Message) bool {
+	if IsSystemMessageText(text) {
 		return true
 	}
 
