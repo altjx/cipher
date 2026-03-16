@@ -61,12 +61,28 @@ func (c *GMClient) handleClientReady(evt *events.ClientReady) {
 	c.logger.Info().Str("session_id", evt.SessionID).Msg("Client ready")
 	c.status.Store(StatusPaired)
 
-	// Cache initial conversations
+	// Cache initial conversations (skip deleted ones)
+	activeIDs := make(map[string]bool)
 	for _, conv := range evt.Conversations {
+		if conv.GetStatus() == gmproto.ConversationStatus_DELETED {
+			continue
+		}
+		convID := conv.GetConversationID()
+		activeIDs[convID] = true
 		c.cacheConvMeta(conv)
 		cr := ConvertConversation(conv)
 		if err := c.db.SaveConversation(cr); err != nil {
 			c.logger.Warn().Err(err).Str("conv_id", cr.ID).Msg("Failed to cache conversation")
+		}
+	}
+
+	// Remove cached conversations that no longer exist on the server
+	if cachedIDs, err := c.db.GetConversationIDs(); err == nil {
+		for _, id := range cachedIDs {
+			if !activeIDs[id] {
+				c.logger.Info().Str("conv_id", id).Msg("Removing stale conversation from cache")
+				_ = c.db.DeleteConversation(id)
+			}
 		}
 	}
 
@@ -112,6 +128,19 @@ func (c *GMClient) handleWrappedMessage(msg *libgm.WrappedMessage) {
 }
 
 func (c *GMClient) handleConversationUpdate(conv *gmproto.Conversation) {
+	convID := conv.GetConversationID()
+	status := conv.GetStatus()
+
+	// If the conversation was deleted, remove it from the cache and DB
+	if status == gmproto.ConversationStatus_DELETED {
+		c.logger.Info().Str("conv_id", convID).Msg("Conversation deleted")
+		if err := c.db.DeleteConversation(convID); err != nil {
+			c.logger.Error().Err(err).Str("conv_id", convID).Msg("Failed to delete conversation from DB")
+		}
+		c.hub.BroadcastConversationDeleted(convID)
+		return
+	}
+
 	c.cacheConvMeta(conv)
 	cr := ConvertConversation(conv)
 	c.logger.Info().Str("conv_id", cr.ID).Msg("Conversation updated")

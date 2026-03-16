@@ -321,6 +321,8 @@ func (c *GMClient) fetchConversationsFromServer(count int, folder string) ([]Con
 	f := gmproto.ListConversationsRequest_INBOX
 	if folder == "archive" || folder == "archived" {
 		f = gmproto.ListConversationsRequest_ARCHIVE
+	} else if folder == "spam_blocked" {
+		f = gmproto.ListConversationsRequest_SPAM_BLOCKED
 	}
 
 	resp, err := cli.ListConversations(count, f)
@@ -330,12 +332,24 @@ func (c *GMClient) fetchConversationsFromServer(count int, folder string) ([]Con
 	}
 
 	var convs []ConversationResponse
+	activeIDs := make(map[string]bool)
 	for _, conv := range resp.GetConversations() {
 		c.cacheConvMeta(conv)
 		cr := ConvertConversation(conv)
+		activeIDs[cr.ID] = true
 		convs = append(convs, cr)
 		if err := c.db.SaveConversation(cr); err != nil {
 			c.logger.Warn().Err(err).Str("conv_id", cr.ID).Msg("Failed to save conversation")
+		}
+	}
+
+	// Remove cached conversations that no longer exist on the server
+	if cachedIDs, err := c.db.GetConversationIDs(); err == nil {
+		for _, id := range cachedIDs {
+			if !activeIDs[id] {
+				c.logger.Info().Str("conv_id", id).Msg("Removing stale conversation from cache")
+				_ = c.db.DeleteConversation(id)
+			}
 		}
 	}
 
@@ -356,6 +370,8 @@ func (c *GMClient) backgroundRefreshConversations(count int, folder string) {
 	f := gmproto.ListConversationsRequest_INBOX
 	if folder == "archive" || folder == "archived" {
 		f = gmproto.ListConversationsRequest_ARCHIVE
+	} else if folder == "spam_blocked" {
+		f = gmproto.ListConversationsRequest_SPAM_BLOCKED
 	}
 
 	resp, err := cli.ListConversations(count, f)
@@ -364,13 +380,26 @@ func (c *GMClient) backgroundRefreshConversations(count int, folder string) {
 		return
 	}
 
+	activeIDs := make(map[string]bool)
 	for _, conv := range resp.GetConversations() {
 		c.cacheConvMeta(conv)
 		cr := ConvertConversation(conv)
+		activeIDs[cr.ID] = true
 		if err := c.db.SaveConversation(cr); err != nil {
 			c.logger.Warn().Err(err).Str("conv_id", cr.ID).Msg("Failed to save conversation")
 		}
 		c.hub.BroadcastConversationUpdate(cr)
+	}
+
+	// Remove cached conversations that no longer exist on the server
+	if cachedIDs, err := c.db.GetConversationIDs(); err == nil {
+		for _, id := range cachedIDs {
+			if !activeIDs[id] {
+				c.logger.Info().Str("conv_id", id).Msg("Removing stale conversation from cache")
+				_ = c.db.DeleteConversation(id)
+				c.hub.BroadcastConversationDeleted(id)
+			}
+		}
 	}
 
 	c.logger.Debug().Msg("Background conversation refresh complete")
@@ -610,6 +639,111 @@ func (c *GMClient) SendMedia(conversationID string, fileData []byte, fileName, m
 	}, nil
 }
 
+// MediaFile represents a file to be uploaded and sent.
+type MediaFile struct {
+	Data     []byte
+	FileName string
+	MimeType string
+}
+
+// SendMultiMedia uploads multiple files in parallel and sends each as a separate message.
+// Google's RCS protocol does not support multiple media items in a single message,
+// so each file is sent as its own message.
+func (c *GMClient) SendMultiMedia(conversationID string, files []MediaFile, replyToID string) (*SendMessageResponse, error) {
+	cli := c.GetClient()
+	if cli == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+
+	meta := c.getConvMeta(conversationID)
+	if meta == nil {
+		return nil, fmt.Errorf("conversation metadata not cached, try reloading conversations")
+	}
+
+	// Upload all files in parallel
+	type uploadResult struct {
+		index   int
+		content *gmproto.MediaContent
+		err     error
+	}
+	results := make(chan uploadResult, len(files))
+
+	for i, f := range files {
+		go func(idx int, file MediaFile) {
+			content, err := cli.UploadMedia(file.Data, file.FileName, file.MimeType)
+			results <- uploadResult{index: idx, content: content, err: err}
+		}(i, f)
+	}
+
+	// Collect results in order
+	uploaded := make([]*gmproto.MediaContent, len(files))
+	var firstErr error
+	for range files {
+		r := <-results
+		if r.err != nil {
+			if firstErr == nil {
+				firstErr = r.err
+			}
+			continue
+		}
+		uploaded[r.index] = r.content
+	}
+
+	// Send each uploaded file as a separate message
+	var lastTmpID string
+	var sentCount int
+	for i, content := range uploaded {
+		if content == nil {
+			continue
+		}
+
+		tmpID := fmt.Sprintf("tmp_%d_%d", time.Now().UnixNano(), i)
+		lastTmpID = tmpID
+
+		payload := &gmproto.SendMessageRequest{
+			ConversationID: conversationID,
+			TmpID:          tmpID,
+			SIMPayload:     meta.simPayload,
+			MessagePayload: &gmproto.MessagePayload{
+				ConversationID: conversationID,
+				ParticipantID:  meta.outgoingID,
+				TmpID:          tmpID,
+				TmpID2:         tmpID,
+				MessageInfo: []*gmproto.MessageInfo{{
+					Data: &gmproto.MessageInfo_MediaContent{
+						MediaContent: content,
+					},
+				}},
+			},
+		}
+
+		// Only attach reply to the first message
+		if i == 0 && replyToID != "" {
+			payload.Reply = &gmproto.ReplyPayload{
+				MessageID: replyToID,
+			}
+		}
+
+		if _, err := cli.SendMessage(payload); err != nil {
+			c.logger.Warn().Err(err).Int("index", i).Msg("Failed to send media message in batch")
+			continue
+		}
+		sentCount++
+	}
+
+	if sentCount == 0 {
+		if firstErr != nil {
+			return nil, fmt.Errorf("all uploads failed: %w", firstErr)
+		}
+		return nil, fmt.Errorf("no files sent")
+	}
+
+	return &SendMessageResponse{
+		MessageID: lastTmpID,
+		Timestamp: time.Now().UnixMilli(),
+	}, nil
+}
+
 // DownloadMedia downloads decrypted media.
 func (c *GMClient) DownloadMedia(messageID, mediaID string) ([]byte, string, error) {
 	cli := c.GetClient()
@@ -738,6 +872,131 @@ func (c *GMClient) DeleteConversation(conversationID string) error {
 	return nil
 }
 
+// ArchiveConversation archives or unarchives a conversation.
+func (c *GMClient) ArchiveConversation(conversationID string, archive bool) error {
+	cli := c.GetClient()
+	if cli == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	status := gmproto.ConversationStatus_ACTIVE
+	if archive {
+		status = gmproto.ConversationStatus_ARCHIVED
+	}
+
+	_, err := cli.UpdateConversation(&gmproto.UpdateConversationRequest{
+		Data: &gmproto.UpdateConversationRequest_UpdateData{
+			UpdateData: &gmproto.UpdateConversationData{
+				ConversationID: conversationID,
+				Data: &gmproto.UpdateConversationData_Status{
+					Status: status,
+				},
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update conversation: %w", err)
+	}
+
+	return nil
+}
+
+// MuteConversation mutes or unmutes a conversation.
+func (c *GMClient) MuteConversation(conversationID string, mute bool) error {
+	cli := c.GetClient()
+	if cli == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	muteStatus := gmproto.ConversationMuteStatus_UNMUTE
+	if mute {
+		muteStatus = gmproto.ConversationMuteStatus_MUTE
+	}
+
+	_, err := cli.UpdateConversation(&gmproto.UpdateConversationRequest{
+		Data: &gmproto.UpdateConversationRequest_UpdateData{
+			UpdateData: &gmproto.UpdateConversationData{
+				ConversationID: conversationID,
+				Data: &gmproto.UpdateConversationData_Mute{
+					Mute: muteStatus,
+				},
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update conversation: %w", err)
+	}
+
+	return nil
+}
+
+// BlockConversation blocks or unblocks a conversation.
+func (c *GMClient) BlockConversation(conversationID string, block bool) error {
+	cli := c.GetClient()
+	if cli == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	action := gmproto.ConversationActionStatus_UNBLOCK
+	if block {
+		action = gmproto.ConversationActionStatus_BLOCK
+	}
+
+	_, err := cli.UpdateConversation(&gmproto.UpdateConversationRequest{
+		ConversationID: conversationID,
+		Action:         action,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update conversation: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteMessage deletes a single message.
+func (c *GMClient) DeleteMessage(messageID string) error {
+	cli := c.GetClient()
+	if cli == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	_, err := cli.DeleteMessage(messageID)
+	if err != nil {
+		return fmt.Errorf("failed to delete message: %w", err)
+	}
+
+	// Remove from local cache
+	if err := c.db.DeleteMessage(messageID); err != nil {
+		c.logger.Warn().Err(err).Str("msg_id", messageID).Msg("Failed to delete message from cache")
+	}
+
+	return nil
+}
+
+// GetParticipantThumbnails fetches avatar thumbnails for participants.
+func (c *GMClient) GetParticipantThumbnails(participantIDs []string) (map[string][]byte, error) {
+	cli := c.GetClient()
+	if cli == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+
+	resp, err := cli.GetParticipantThumbnail(participantIDs...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get thumbnails: %w", err)
+	}
+
+	result := make(map[string][]byte)
+	for _, thumb := range resp.GetThumbnail() {
+		if data := thumb.GetData(); data != nil {
+			if buf := data.GetImageBuffer(); len(buf) > 0 {
+				result[thumb.GetIdentifier()] = buf
+			}
+		}
+	}
+
+	return result, nil
+}
+
 // MarkRead marks a conversation as read up to a given message.
 func (c *GMClient) MarkRead(conversationID, messageID string) error {
 	cli := c.GetClient()
@@ -746,6 +1005,78 @@ func (c *GMClient) MarkRead(conversationID, messageID string) error {
 	}
 
 	return cli.MarkRead(conversationID, messageID)
+}
+
+// CreateConversation creates or gets an existing conversation with the given phone numbers.
+func (c *GMClient) CreateConversation(numbers []string) (*ConversationResponse, error) {
+	cli := c.GetClient()
+	if cli == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+
+	var contactNumbers []*gmproto.ContactNumber
+	for _, num := range numbers {
+		contactNumbers = append(contactNumbers, &gmproto.ContactNumber{
+			MysteriousInt: 7, // 7 = user input
+			Number:        num,
+			Number2:       num,
+		})
+	}
+
+	resp, err := cli.GetOrCreateConversation(&gmproto.GetOrCreateConversationRequest{
+		Numbers: contactNumbers,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create conversation: %w", err)
+	}
+
+	conv := resp.GetConversation()
+	if conv == nil {
+		return nil, fmt.Errorf("no conversation returned")
+	}
+
+	c.cacheConvMeta(conv)
+	cr := ConvertConversation(conv)
+
+	if err := c.db.SaveConversation(cr); err != nil {
+		c.logger.Warn().Err(err).Str("conv_id", cr.ID).Msg("Failed to save new conversation")
+	}
+
+	return &cr, nil
+}
+
+// GetConversationDetails fetches full conversation details from the server.
+func (c *GMClient) GetConversationDetails(conversationID string) (*ConversationResponse, error) {
+	cli := c.GetClient()
+	if cli == nil {
+		// Fall back to cached data
+		return c.db.GetConversationByID(conversationID)
+	}
+
+	conv, err := cli.GetConversation(conversationID)
+	if err != nil {
+		c.logger.Warn().Err(err).Msg("Failed to fetch conversation details from server, using cache")
+		return c.db.GetConversationByID(conversationID)
+	}
+
+	c.cacheConvMeta(conv)
+	cr := ConvertConversation(conv)
+	return &cr, nil
+}
+
+// SetTyping sends a typing indicator for a conversation.
+func (c *GMClient) SetTyping(conversationID string) error {
+	cli := c.GetClient()
+	if cli == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	meta := c.getConvMeta(conversationID)
+	if meta == nil {
+		return fmt.Errorf("conversation metadata not cached, try reloading conversations")
+	}
+
+	return cli.SetTyping(conversationID, meta.simPayload)
 }
 
 // ListContacts fetches the contact list.

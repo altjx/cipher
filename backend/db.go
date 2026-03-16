@@ -325,6 +325,8 @@ func (d *Database) GetMessages(conversationID string, limit int, cursor string) 
 			}
 		}
 
+		m.IsSystemMessage = IsSystemMessageText(m.Text)
+
 		msgs = append(msgs, m)
 	}
 
@@ -345,6 +347,27 @@ func (d *Database) GetMessages(conversationID string, limit int, cursor string) 
 	return msgs, nextCursor, nil
 }
 
+func (d *Database) GetConversationIDs() ([]string, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	rows, err := d.db.Query(`SELECT id FROM conversations`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
 func (d *Database) DeleteConversation(conversationID string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -363,6 +386,14 @@ func (d *Database) DeleteConversation(conversationID string) error {
 	}
 
 	return tx.Commit()
+}
+
+func (d *Database) DeleteMessage(messageID string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	_, err := d.db.Exec(`DELETE FROM messages WHERE id = ?`, messageID)
+	return err
 }
 
 func (d *Database) UpdateMessageStatus(messageID, status string) error {
@@ -516,6 +547,8 @@ func (d *Database) GetMediaMessages(conversationID string, limit int, cursor str
 				m.ReplyTo = &reply
 			}
 		}
+
+		m.IsSystemMessage = IsSystemMessageText(m.Text)
 
 		msgs = append(msgs, m)
 	}
