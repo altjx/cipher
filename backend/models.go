@@ -165,6 +165,10 @@ type TypingData struct {
 	Active         bool   `json:"active"`
 }
 
+type ConversationDeletedData struct {
+	ConversationID string `json:"conversationId"`
+}
+
 type QRRefreshData struct {
 	QRUrl string `json:"qrUrl"`
 }
@@ -379,8 +383,9 @@ func MapMessageStatus(status gmproto.MessageStatusType) string {
 	case gmproto.MessageStatusType_OUTGOING_DELIVERED:
 		return "delivered"
 	case gmproto.MessageStatusType_OUTGOING_COMPLETE,
-		gmproto.MessageStatusType_OUTGOING_DISPLAYED,
 		gmproto.MessageStatusType_INCOMING_COMPLETE:
+		return "delivered"
+	case gmproto.MessageStatusType_OUTGOING_DISPLAYED:
 		return "read"
 	case gmproto.MessageStatusType_OUTGOING_FAILED_GENERIC,
 		gmproto.MessageStatusType_OUTGOING_FAILED_EMERGENCY_NUMBER,
