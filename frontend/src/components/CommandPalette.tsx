@@ -88,6 +88,7 @@ const COMMANDS: CommandDef[] = [
     category: 'View',
     keywords: ['theme', 'dark', 'light', 'color', 'appearance', 'mode', 'dracula', 'nord', 'github', 'solarized', 'monokai', 'tokyo'],
     icon: <Palette className="w-4 h-4" />,
+    shortcut: '⌘T',
     action: 'change-theme',
   },
   {
@@ -125,6 +126,7 @@ const CATEGORY_ORDER: CommandDef['category'][] = ['Navigation', 'Search', 'View'
 
 const SHORTCUT_LIST = [
   { keys: '⌘ K', description: 'Open command palette' },
+  { keys: '⌘ N', description: 'New conversation' },
   { keys: '⌘ G', description: 'Go to conversation' },
   { keys: '⌘ [', description: 'Previous conversation' },
   { keys: '⌘ ]', description: 'Next conversation' },
@@ -132,6 +134,10 @@ const SHORTCUT_LIST = [
   { keys: '⌘ S', description: 'Search all messages' },
   { keys: '⌘ L', description: 'Toggle sidebar' },
   { keys: '⌘ I', description: 'Toggle info panel' },
+  { keys: '⌘ T', description: 'Change theme' },
+  { keys: '⌘ D', description: 'Delete conversation' },
+  { keys: '⌘ 1-7', description: 'Insert emoji (💯❤️😂👍😮😢🙏)' },
+  { keys: '⌘ X, 1-7', description: 'React to last message' },
 ];
 
 // ---- Ordered themes for the picker ----
@@ -145,7 +151,7 @@ type PaletteMode = 'commands' | 'goto' | 'shortcuts' | 'themes';
 interface CommandPaletteProps {
   conversations: Conversation[];
   hasConversation: boolean;
-  initialMode?: 'commands' | 'goto';
+  initialMode?: 'commands' | 'goto' | 'themes';
   onAction: (action: string) => void;
   onSelectConversation: (id: string) => void;
   onClose: () => void;
@@ -167,6 +173,15 @@ export default function CommandPalette({
 
   const { themeId, setTheme } = useTheme();
   const originalThemeRef = useRef(themeId);
+
+  // When opened directly in themes mode (e.g. Cmd+T), set up the original theme ref
+  useEffect(() => {
+    if (initialMode === 'themes') {
+      originalThemeRef.current = themeId;
+      const currentIdx = orderedThemes.findIndex((t) => t.id === themeId);
+      setSelectedIndex(currentIdx >= 0 ? currentIdx : 0);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Focus input on mount and mode change
   useEffect(() => {

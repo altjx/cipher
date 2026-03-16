@@ -34,6 +34,8 @@ interface MessageThreadProps {
   onShowParticipantDetail: (participantId: string) => void;
   searchTrigger?: number;
   refocusTrigger?: number;
+  emojiInsert?: { emoji: string; seq: number };
+  reactionEmoji?: { emoji: string; seq: number };
 }
 
 function dateSeparatorLabel(ts: number): string {
@@ -56,7 +58,7 @@ function isSameDay(ts1: number, ts2: number): boolean {
 // In-memory cache so switching back to a conversation is instant
 const messageCache = new Map<string, { messages: Message[]; cursor: string | null; hasMore: boolean }>();
 
-export default function MessageThread({ conversationId, conversation, subscribe, targetMessageId, onTargetReached, detailOpen, onToggleDetail, onShowParticipantDetail: _onShowParticipantDetail, searchTrigger, refocusTrigger }: MessageThreadProps) {
+export default function MessageThread({ conversationId, conversation, subscribe, targetMessageId, onTargetReached, detailOpen, onToggleDetail, onShowParticipantDetail: _onShowParticipantDetail, searchTrigger, refocusTrigger, emojiInsert, reactionEmoji }: MessageThreadProps) {
   const cached = messageCache.get(conversationId);
   const [messages, setMessages] = useState<Message[]>(cached?.messages ?? []);
   const [text, setText] = useState('');
@@ -102,6 +104,17 @@ export default function MessageThread({ conversationId, conversation, subscribe,
     }
   }, []);
 
+  // When the typing indicator appears, scroll it into view if the user is near the bottom.
+  useEffect(() => {
+    if (typingNames.length === 0) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceFromBottom < 150) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [typingNames.length > 0]);
+
   // Close menu on outside click
   useEffect(() => {
     if (!showMenu) return;
@@ -134,6 +147,24 @@ export default function MessageThread({ conversationId, conversation, subscribe,
       textareaRef.current?.focus();
     }
   }, [refocusTrigger]);
+
+  // Insert emoji at cursor via keyboard shortcut (Cmd+1-7)
+  useEffect(() => {
+    if (!emojiInsert || emojiInsert.seq === 0) return;
+    handleEmojiSelect(emojiInsert.emoji);
+  }, [emojiInsert?.seq]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // React to last non-me message via keyboard shortcut (Cmd+Opt+1-7)
+  useEffect(() => {
+    if (!reactionEmoji || reactionEmoji.seq === 0) return;
+    // Find the last message from someone else
+    for (let idx = messages.length - 1; idx >= 0; idx--) {
+      if (!messages[idx].sender.isMe) {
+        sendReaction(conversationId, messages[idx].id, reactionEmoji.emoji).catch(() => {});
+        break;
+      }
+    }
+  }, [reactionEmoji?.seq]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load messages on conversation change
   useEffect(() => {
