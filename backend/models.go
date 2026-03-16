@@ -1,10 +1,13 @@
 package main
 
 import (
+	"regexp"
 	"strings"
 
 	"go.mau.fi/mautrix-gmessages/pkg/libgm/gmproto"
 )
+
+var systemChatWithPattern = regexp.MustCompile(`^(rcs chat with|texting with|chatting with|you're now chatting with) .+\((sms|sms/mms|rcs|chat)\)$`)
 
 // API response types matching the API contract
 
@@ -342,11 +345,15 @@ func ConvertContact(c *gmproto.Contact) ContactResponse {
 // IsSystemMessageText checks if message text matches known system/notification patterns.
 // Exported so db.go can reuse it when loading cached messages.
 func IsSystemMessageText(text string) bool {
-	lower := strings.ToLower(text)
+	lower := strings.ToLower(strings.TrimSpace(text))
+
+	// Patterns like "Texting with 51789 (SMS/MMS)" or "RCS chat with Alice (RCS)"
+	// require the trailing protocol marker to avoid false positives on user messages
+	if systemChatWithPattern.MatchString(lower) {
+		return true
+	}
+
 	systemPrefixes := []string{
-		"rcs chat with",
-		"you're now chatting with",
-		"chatting with",
 		"messages are end-to-end encrypted",
 		"this chat is now encrypted",
 		"chat features are enabled",

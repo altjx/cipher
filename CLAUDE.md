@@ -8,9 +8,11 @@ Desktop Google Messages client built as three cooperating layers: a Go backend t
 
 ## Architecture
 
-- **backend/** — Go HTTP server (gorilla/mux). `main.go` boots the server; `server.go` defines routes; `handlers.go` has HTTP handlers; `client.go` wraps `libgm` for pairing, messaging, media, reactions; `events.go` handles libgm event callbacks; `websocket.go` is a hub that broadcasts events to connected WS clients; `models.go` defines API types and gmproto→API conversion functions; `db.go` is the SQLite cache layer.
-- **frontend/** — React 19 + Vite 8 + Tailwind CSS 4 SPA. Entry at `src/main.tsx` → `App.tsx` which manages three views (loading/pairing/main). `src/api/client.ts` has typed API client and all WS event types. `src/hooks/useWebSocket.ts` provides a subscribe-based WS hook with auto-reconnect. Components: `ConversationList`, `MessageThread`, `MessageBubble`, `QRPairing`, `ReactionPicker`, `MediaPlayer`, `StatusBar`.
-- **electron/** — Electron main process (`src/main.ts`) + preload (`src/preload.ts`). Spawns the backend binary, polls until ready, connects its own WS for notifications/badge, creates the BrowserWindow. In dev it checks if backend is already running before spawning.
+- **backend/** — Go HTTP server (gorilla/mux). `main.go` boots the server; `server.go` defines routes; `handlers.go` has HTTP handlers; `client.go` wraps `libgm` for pairing, messaging, media, reactions; `events.go` handles libgm event callbacks; `websocket.go` is a hub that broadcasts events to connected WS clients; `models.go` defines API types and gmproto→API conversion functions; `db.go` is the SQLite cache layer. `search_contacts.go` uses `unsafe` + `go:linkname` to call unexported libgm functions for contact search with undocumented protobuf field injection.
+- **frontend/** — React 19 + Vite 8 + Tailwind CSS 4 SPA. Entry at `src/main.tsx` → `App.tsx` which manages three views (loading/pairing/main). `src/api/client.ts` has typed API client and all WS event types. `src/hooks/useWebSocket.ts` provides a subscribe-based WS hook with auto-reconnect (exponential backoff, 1s → 30s max). No external state manager — just React hooks + Context (ThemeContext).
+- **electron/** — Electron main process (`src/main.ts`) + preload (`src/preload.ts`). Spawns the backend binary, polls `/api/status` every 500ms (15s timeout) until ready, connects its own WS for notifications/badge, creates the BrowserWindow. In dev it checks if backend is already running before spawning. Single-instance lock prevents duplicate app windows.
+- **tools/** — `chrome-intercept/` is a Chrome extension used for intercepting and analyzing Google Messages protocol traffic (how undocumented protobuf fields were discovered).
+- **mockups/** — HTML mockup files used as UI design references.
 
 ## Development Commands
 
@@ -45,12 +47,27 @@ npm run typecheck        # tsc --noEmit
 2. `cd frontend && npm run dev`
 3. `cd electron && npm run dev` (optional — or just use browser at localhost:5173)
 
+Note: There are no tests in the project currently.
+
 ## Key Conventions
 
 - The API contract between backend and frontend is documented in `API_CONTRACT.md`. All REST endpoints and WebSocket event shapes are defined there.
-- Backend uses `zerolog` for structured logging with component-scoped loggers.
+- Backend uses `zerolog` for structured logging with component-scoped loggers (`.With().Str("component", "name").Logger()`).
 - Frontend uses relative URLs (`/api/...`) — Vite proxies to backend in dev, Electron loads the built frontend from resources in production.
 - Session data persists in `{dataDir}/session.json`; message cache in `{dataDir}/messages.db`.
 - The backend falls back to SQLite cache when the libgm client is disconnected.
 - Electron manages backend lifecycle: spawns binary, waits for health check, kills on quit. In dev mode it skips spawning if backend is already reachable on the port.
 - CORS is configured for `localhost:5173` (Vite dev) and `localhost:8080` (backend self).
+
+## Important Patterns
+
+- **Timestamps**: Backend converts microseconds (from libgm/gmproto) → milliseconds for the API. Always divide/multiply by 1000 at the boundary.
+- **Empty slices**: Always initialize to `[]Type{}` (not `nil`) so JSON serializes as `[]` rather than `null`.
+- **Connection status**: Uses atomic values (`GMClient.status`) to avoid mutex contention. Values: `"unpaired"`, `"connecting"`, `"paired"`, `"phone_offline"`.
+- **Message status mapping**: `OUTGOING_COMPLETE` → "delivered" (not "read"); `OUTGOING_DISPLAYED` → "read".
+- **Conversation metadata cache**: `client.go` caches per-conversation outgoing participant ID + SIM payload in `convMeta` map (RWMutex-protected) to speed up message sends.
+- **Ghost conversation pruning**: On `ClientReady` event, stale conversations are removed from the SQLite cache.
+- **WebSocket hub**: Broadcast buffer size 256; drops slow clients if send buffer fills.
+- **SQLite WAL mode**: Enabled for concurrent reads during writes.
+- **System messages**: Detected via `IsSystemMessageText()` regex patterns (exported for reuse across packages).
+- **Theme system**: 7+ themes defined in `src/config/themes.ts`, each providing 14 CSS custom property values. Persisted to localStorage via ThemeContext.
