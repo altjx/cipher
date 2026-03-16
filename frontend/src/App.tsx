@@ -7,6 +7,7 @@ import ConversationList from './components/ConversationList';
 import MessageThread from './components/MessageThread';
 import DetailPanel from './components/DetailPanel';
 import CommandPalette from './components/CommandPalette';
+import ComposeDialog from './components/ComposeDialog';
 
 type AppView = 'loading' | 'pairing' | 'main';
 
@@ -26,6 +27,7 @@ export default function App() {
   const [refocusTrigger, setRefocusTrigger] = useState(0);
   const [searchTrigger, setSearchTrigger] = useState(0);        // Cmd+F: find in conversation
   const [globalSearchTrigger, setGlobalSearchTrigger] = useState(0); // Cmd+S: search all
+  const [composeOpen, setComposeOpen] = useState(false);
 
   const deletedIdsRef = useRef<Set<string>>(new Set());
   const { subscribe, connectionState } = useWebSocket();
@@ -172,6 +174,10 @@ export default function App() {
       if (!isMeta) return;
 
       switch (e.key) {
+        case 'n': // Cmd+N: New conversation
+          e.preventDefault();
+          setComposeOpen(true);
+          break;
         case 'k': // Cmd+K: Command palette
           e.preventDefault();
           setPaletteInitialMode('commands');
@@ -255,6 +261,15 @@ export default function App() {
     setRefocusTrigger((v) => v + 1);
   }, [navigateConversation, selectedConversationId]);
 
+  const handleConversationCreated = useCallback((conversationId: string) => {
+    setComposeOpen(false);
+    setSelectedConversationId(conversationId);
+    // Refresh conversations to include the new one
+    fetchConversations(50)
+      .then((res) => setConversations(res.conversations))
+      .catch(() => {});
+  }, []);
+
   const handleDeleteConfirmAction = useCallback(async () => {
     if (!deleteConfirm) return;
     setDeleting(true);
@@ -299,6 +314,7 @@ export default function App() {
         collapsed={sidebarCollapsed}
         onToggleCollapse={toggleSidebar}
         focusSearchTrigger={globalSearchTrigger}
+        onCompose={() => setComposeOpen(true)}
       />
 
       {selectedConversationId ? (
@@ -342,6 +358,13 @@ export default function App() {
           onAction={handlePaletteAction}
           onSelectConversation={handleSelectConversation}
           onClose={() => { setPaletteOpen(false); setPaletteInitialMode('commands'); setRefocusTrigger((v) => v + 1); }}
+        />
+      )}
+
+      {composeOpen && (
+        <ComposeDialog
+          onConversationCreated={handleConversationCreated}
+          onClose={() => setComposeOpen(false)}
         />
       )}
 

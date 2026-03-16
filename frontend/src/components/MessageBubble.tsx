@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { MessageSquareReply, SmilePlus, Check, CheckCheck } from 'lucide-react';
+import { MessageSquareReply, SmilePlus, Check, CheckCheck, Trash2, RotateCcw } from 'lucide-react';
 import type { Message } from '../api/client';
 import MediaPlayer from './MediaPlayer';
-import ReactionPicker from './ReactionPicker';
+import EmojiPicker from './EmojiPicker';
 
 interface MessageBubbleProps {
   message: Message;
@@ -10,6 +10,8 @@ interface MessageBubbleProps {
   showSender: boolean;
   onReply: (message: Message) => void;
   onReact: (messageId: string, emoji: string) => void;
+  onDelete?: (messageId: string) => void;
+  onResend?: (message: Message) => void;
   onImageClick?: (url: string) => void;
   onImageLoad?: () => void;
   conversationName?: string;
@@ -48,13 +50,13 @@ function StatusIcon({ status }: { status: Message['status'] }) {
     case 'read':
       return <CheckCheck className="w-3.5 h-3.5 text-[var(--accent)]" />;
     case 'failed':
-      return <span className="text-red-500 text-xs">!</span>;
+      return <span className="text-red-500 text-xs font-medium">Failed</span>;
     default:
       return null;
   }
 }
 
-export default function MessageBubble({ message, isMe, showSender, onReply, onReact, onImageClick, onImageLoad, conversationName, showTimestamp, isGroup, senderColor: sColor }: MessageBubbleProps) {
+export default function MessageBubble({ message, isMe, showSender, onReply, onReact, onDelete, onResend, onImageClick, onImageLoad, conversationName, showTimestamp, isGroup, senderColor: sColor }: MessageBubbleProps) {
   const [hovered, setHovered] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
 
@@ -76,7 +78,7 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
     <div
       className={`flex flex-col ${alignment} mb-1 group relative`}
       onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => { setHovered(false); setShowReactions(false); }}
+      onMouseLeave={() => { if (!showReactions) { setHovered(false); } }}
     >
       {!isMe && showSender && message.sender.name && !showGroupStyle && (
         <span className="text-xs text-[var(--text-2)] ml-1 mb-0.5">{message.sender.name}</span>
@@ -98,18 +100,49 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
 
         {isMe && hovered && (
           <div className="flex gap-0.5 mr-1">
+            {message.status === 'failed' && onResend && (
+              <button
+                onClick={() => onResend(message)}
+                className="p-1 rounded hover:bg-[var(--surface-3)] transition-colors text-orange-400 hover:text-orange-300"
+                title="Retry sending"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            )}
             <button
               onClick={() => onReply(message)}
               className="p-1 rounded hover:bg-[var(--surface-3)] transition-colors text-[var(--text-3)] hover:text-[var(--text)]"
             >
               <MessageSquareReply className="w-3.5 h-3.5" />
             </button>
-            <button
-              onClick={() => setShowReactions(true)}
-              className="p-1 rounded hover:bg-[var(--surface-3)] transition-colors text-[var(--text-3)] hover:text-[var(--text)] relative"
-            >
-              <SmilePlus className="w-3.5 h-3.5" />
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setShowReactions(true)}
+                className="p-1 rounded hover:bg-[var(--surface-3)] transition-colors text-[var(--text-3)] hover:text-[var(--text)]"
+              >
+                <SmilePlus className="w-3.5 h-3.5" />
+              </button>
+              {showReactions && (
+                <div className="absolute bottom-full right-0 mb-2 z-50">
+                  <EmojiPicker
+                    onSelect={(emoji) => {
+                      onReact(message.id, emoji);
+                      setShowReactions(false);
+                    }}
+                    onClose={() => setShowReactions(false)}
+                  />
+                </div>
+              )}
+            </div>
+            {onDelete && (
+              <button
+                onClick={() => onDelete(message.id)}
+                className="p-1 rounded hover:bg-[var(--surface-3)] transition-colors text-[var(--text-3)] hover:text-red-400"
+                title="Delete message"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         )}
 
@@ -170,24 +203,25 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
             >
               <MessageSquareReply className="w-3.5 h-3.5" />
             </button>
-            <button
-              onClick={() => setShowReactions(true)}
-              className="p-1 rounded hover:bg-[var(--surface-3)] transition-colors text-[var(--text-3)] hover:text-[var(--text)] relative"
-            >
-              <SmilePlus className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
-
-        {showReactions && (
-          <div className={`absolute ${isMe ? 'right-0' : 'left-0'} bottom-full`}>
-            <ReactionPicker
-              onSelect={(emoji) => {
-                onReact(message.id, emoji);
-                setShowReactions(false);
-              }}
-              onClose={() => setShowReactions(false)}
-            />
+            <div className="relative">
+              <button
+                onClick={() => setShowReactions(true)}
+                className="p-1 rounded hover:bg-[var(--surface-3)] transition-colors text-[var(--text-3)] hover:text-[var(--text)]"
+              >
+                <SmilePlus className="w-3.5 h-3.5" />
+              </button>
+              {showReactions && (
+                <div className="absolute bottom-full left-0 mb-2 z-50">
+                  <EmojiPicker
+                    onSelect={(emoji) => {
+                      onReact(message.id, emoji);
+                      setShowReactions(false);
+                    }}
+                    onClose={() => setShowReactions(false)}
+                  />
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
