@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Send, Paperclip, X, Search, MoreVertical, Smile, Info, Clock } from 'lucide-react';
 import type { Message, Conversation, WsNewMessage, WsMessageUpdate, WsMessageStatus, WsTyping } from '../api/client';
-import { fetchMessages, sendMessage, sendMedia, sendReaction, markRead, requestFullSizeImage } from '../api/client';
+import { fetchMessages, sendMessage, sendMedia, sendMultiMedia, sendReaction, markRead, requestFullSizeImage, setTyping, deleteMessage } from '../api/client';
 import MessageBubble from './MessageBubble';
 import { avatarGradient, senderColor } from '../utils/avatarGradient';
 import ImageStack from './ImageStack';
@@ -82,6 +82,10 @@ export default function MessageThread({ conversationId, conversation, subscribe,
   const menuRef = useRef<HTMLDivElement>(null);
   const typingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const refreshedRef = useRef(false);
+  const lastTypingSentRef = useRef<number>(0);
+  const [stagedFiles, setStagedFiles] = useState<File[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dragCounterRef = useRef(0);
 
   const scrollToBottom = useCallback(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -396,13 +400,29 @@ export default function MessageThread({ conversationId, conversation, subscribe,
 
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    const hasFiles = stagedFiles.length > 0;
 
-    sendMessage(conversationId, trimmed, replyTo?.id).catch(() => {});
+    if (!trimmed && !hasFiles) return;
+
+    if (hasFiles) {
+      if (stagedFiles.length === 1) {
+        sendMedia(conversationId, stagedFiles[0], replyTo?.id).catch(() => {});
+      } else {
+        sendMultiMedia(conversationId, stagedFiles, replyTo?.id).catch(() => {});
+      }
+      setStagedFiles([]);
+      // Also send text if provided alongside files
+      if (trimmed) {
+        sendMessage(conversationId, trimmed, replyTo?.id).catch(() => {});
+      }
+    } else {
+      sendMessage(conversationId, trimmed, replyTo?.id).catch(() => {});
+    }
+
     setText('');
     setReplyTo(null);
     setTimeout(scrollToBottom, 100);
-  }, [conversationId, text, replyTo, scrollToBottom]);
+  }, [conversationId, text, stagedFiles, replyTo, scrollToBottom]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -411,14 +431,58 @@ export default function MessageThread({ conversationId, conversation, subscribe,
     }
   };
 
+  const handleTextChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setText(e.target.value);
+    if (e.target.value) {
+      const now = Date.now();
+      if (now - lastTypingSentRef.current > 3000) {
+        lastTypingSentRef.current = now;
+        setTyping(conversationId).catch(() => {});
+      }
+    }
+  }, [conversationId]);
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    sendMedia(conversationId, file, replyTo?.id).catch(() => {});
-    setReplyTo(null);
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+    setStagedFiles((prev) => [...prev, ...files]);
     e.target.value = '';
-    setTimeout(scrollToBottom, 100);
   };
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current++;
+    if (dragCounterRef.current === 1) setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) setIsDragOver(false);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDragOver(false);
+    const files = Array.from(e.dataTransfer.files).filter(
+      (f) => f.type.startsWith('image/') || f.type.startsWith('video/')
+    );
+    if (files.length > 0) {
+      setStagedFiles((prev) => [...prev, ...files]);
+    }
+  }, []);
+
+  const removeStagedFile = useCallback((index: number) => {
+    setStagedFiles((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      return next;
+    });
+  }, []);
 
   const handleReply = useCallback((msg: Message) => {
     setReplyTo(msg);
@@ -426,6 +490,30 @@ export default function MessageThread({ conversationId, conversation, subscribe,
 
   const handleReact = useCallback((msgId: string, emoji: string) => {
     sendReaction(conversationId, msgId, emoji).catch(() => {});
+  }, [conversationId]);
+
+  const handleDeleteMessage = useCallback((msgId: string) => {
+    deleteMessage(msgId).then(() => {
+      setMessages((prev) => {
+        const updated = prev.filter((m) => m.id !== msgId);
+        const cachedEntry = messageCache.get(conversationId);
+        messageCache.set(conversationId, {
+          messages: updated,
+          cursor: cachedEntry?.cursor ?? null,
+          hasMore: cachedEntry?.hasMore ?? true,
+        });
+        return updated;
+      });
+    }).catch(() => {});
+  }, [conversationId]);
+
+  const handleResend = useCallback((msg: Message) => {
+    // Re-send as a new message with the same content
+    if (msg.text) {
+      sendMessage(conversationId, msg.text).catch(() => {});
+    }
+    // Remove the failed message from the list
+    setMessages((prev) => prev.filter((m) => m.id !== msg.id));
   }, [conversationId]);
 
   const handleEmojiSelect = useCallback((emoji: string) => {
@@ -442,7 +530,6 @@ export default function MessageThread({ conversationId, conversation, subscribe,
     } else {
       setText((prev) => prev + emoji);
     }
-    setShowEmojiPicker(false);
   }, [text]);
 
   // Filter messages by search query
@@ -643,6 +730,8 @@ export default function MessageThread({ conversationId, conversation, subscribe,
           showSender={showSender}
           onReply={handleReply}
           onReact={handleReact}
+          onDelete={msg.sender.isMe ? handleDeleteMessage : undefined}
+          onResend={msg.sender.isMe && msg.status === 'failed' ? handleResend : undefined}
           onImageClick={msgImages.length > 0 ? (url: string) => handleImageClick(url, msgImages) : undefined}
           onImageLoad={handleImageLoad}
           conversationName={conversation?.name}
@@ -656,7 +745,23 @@ export default function MessageThread({ conversationId, conversation, subscribe,
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full min-w-0 bg-[var(--surface-1)] rounded-[20px] shadow-[0_4px_24px_rgba(0,0,0,0.2)] overflow-hidden">
+    <div
+      className="flex-1 flex flex-col h-full min-w-0 bg-[var(--surface-1)] rounded-[20px] shadow-[0_4px_24px_rgba(0,0,0,0.2)] overflow-hidden relative"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {/* Drag & drop overlay */}
+      {isDragOver && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-1)]/80 backdrop-blur-sm border-2 border-dashed border-[var(--accent)] rounded-[20px] pointer-events-none">
+          <div className="text-center">
+            <p className="text-lg font-semibold text-[var(--accent)]">Drop images here</p>
+            <p className="text-sm text-[var(--text-2)] mt-1">Images and videos will be staged for sending</p>
+          </div>
+        </div>
+      )}
+
       {/* Draggable title bar region */}
       <div className="titlebar-drag flex-shrink-0 border-b border-[var(--border)] flex items-center px-6 gap-3.5" style={{ minHeight: '56px' }}>
         {conversation && (
@@ -826,6 +931,34 @@ export default function MessageThread({ conversationId, conversation, subscribe,
         </div>
       )}
 
+      {/* Staged files preview */}
+      {stagedFiles.length > 0 && (
+        <div className="px-5 py-2 border-t border-[var(--border)] flex items-center gap-2 overflow-x-auto">
+          {stagedFiles.map((file, i) => (
+            <div key={`${file.name}-${i}`} className="relative flex-shrink-0 group">
+              {file.type.startsWith('image/') ? (
+                <img
+                  src={URL.createObjectURL(file)}
+                  alt={file.name}
+                  className="w-16 h-16 object-cover rounded-lg border border-[var(--border)]"
+                  onLoad={(e) => URL.revokeObjectURL((e.target as HTMLImageElement).src)}
+                />
+              ) : (
+                <div className="w-16 h-16 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] flex items-center justify-center">
+                  <span className="text-[10px] text-[var(--text-3)] text-center px-1 truncate">{file.name}</span>
+                </div>
+              )}
+              <button
+                onClick={() => removeStagedFile(i)}
+                className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-[var(--surface-2)] border border-[var(--border)] rounded-full flex items-center justify-center text-[var(--text-3)] hover:text-[var(--text)] hover:bg-[var(--surface-3)] transition-colors opacity-0 group-hover:opacity-100"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Input bar */}
       <div className="px-5 py-3 pb-5 border-t border-[var(--border)] flex items-end gap-2.5">
         <div className="flex-1 bg-[var(--surface-2)] rounded-2xl flex items-end px-1">
@@ -838,6 +971,7 @@ export default function MessageThread({ conversationId, conversation, subscribe,
           <input
             ref={fileInputRef}
             type="file"
+            multiple
             className="hidden"
             onChange={handleFileSelect}
           />
@@ -845,7 +979,7 @@ export default function MessageThread({ conversationId, conversation, subscribe,
           <textarea
             ref={textareaRef}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={handleTextChange}
             onKeyDown={handleKeyDown}
             placeholder="Type a message..."
             rows={1}
@@ -861,7 +995,7 @@ export default function MessageThread({ conversationId, conversation, subscribe,
               <Smile className="w-[17px] h-[17px]" />
             </button>
             {showEmojiPicker && (
-              <div className="absolute bottom-full right-0 mb-2">
+              <div className="absolute bottom-full right-0 mb-2 z-50">
                 <EmojiPicker
                   onSelect={handleEmojiSelect}
                   onClose={() => setShowEmojiPicker(false)}
@@ -873,7 +1007,7 @@ export default function MessageThread({ conversationId, conversation, subscribe,
 
         <button
           onClick={handleSend}
-          disabled={!text.trim()}
+          disabled={!text.trim() && stagedFiles.length === 0}
           className="w-11 h-11 rounded-[14px] bg-[var(--accent-2)] text-white flex items-center justify-center flex-shrink-0 transition-all hover:scale-105 shadow-[0_2px_8px_rgba(59,130,246,0.25)] hover:shadow-[0_4px_16px_rgba(59,130,246,0.35)] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:scale-100"
         >
           <Send className="w-[18px] h-[18px]" />
