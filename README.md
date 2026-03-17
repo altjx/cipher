@@ -74,7 +74,7 @@ If you just want to use Cipher, you do not need Go, Node.js, or any development 
 ## Features
 
 ### Messaging
-- Send and receive text, images, videos, audio, PDFs, and vCards
+- Send and receive text, images, videos, PDFs, and vCards
 - Reply to specific messages
 - Emoji reactions with keyboard shortcuts (<kbd>⌘</kbd><kbd>X</kbd> then <kbd>1</kbd>–<kbd>7</kbd>)
 - Delete sent messages
@@ -102,7 +102,7 @@ If you just want to use Cipher, you do not need Go, Node.js, or any development 
 ### Themes
 9 built-in color themes with instant switching:
 
-| | | |
+| Theme | Theme | Theme |
 |---|---|---|
 | Dark (teal) | Midnight (purple) | Light |
 | GitHub Dark | Dracula | Nord |
