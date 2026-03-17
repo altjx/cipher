@@ -49,6 +49,15 @@ npm run typecheck        # tsc --noEmit
 
 Note: There are no tests in the project currently.
 
+## Commit and Release Workflow
+
+- Commits should follow Conventional Commits: `type(scope): subject`.
+- Install the tracked git hooks with `./scripts/install-git-hooks.sh`.
+- The commit-msg hook lives in `.githooks/commit-msg` and rejects non-conforming commit subjects.
+- Release analysis lives in `scripts/release.sh`.
+- Claude's release automation prompt is `.claude/commands/release.md`.
+- Release notes are generated into `CHANGELOG.md`, and release versioning is driven by `electron/package.json`.
+
 ## Key Conventions
 
 - The API contract between backend and frontend is documented in `API_CONTRACT.md`. All REST endpoints and WebSocket event shapes are defined there.
