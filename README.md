@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="electron/assets/icon.png" width="128" height="128" alt="Cipher" />
+  <img src=".github/icon-rounded.png" width="128" height="128" alt="Cipher" />
 </p>
 
 <h1 align="center">Cipher</h1>
