@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { FileText, Copy, Check } from 'lucide-react';
 import type { Conversation, Message } from '../api/client';
 import { fetchConversationMedia, downloadMediaUrl, requestFullSizeImage } from '../api/client';
-import { avatarGradient } from '../utils/avatarGradient';
 import ImageLightbox, { type LightboxImage } from './ImageLightbox';
 import { getMediaUrl } from './MediaPlayer';
+import Avatar from './Avatar';
 
 interface DetailPanelProps {
   conversationId: string;
@@ -12,19 +12,6 @@ interface DetailPanelProps {
   focusParticipantId?: string | null;
 }
 
-const EMOJI_RE = /\p{Extended_Pictographic}/gu;
-
-function getInitials(name: string): string {
-  return name
-    .replace(EMOJI_RE, '')
-    .trim()
-    .split(/\s+/)
-    .map((w) => w[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
-}
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -148,11 +135,13 @@ export default function DetailPanel({ conversationId, conversation, focusPartici
       <div className="titlebar-drag h-8 flex-shrink-0" />
 
       {/* Avatar */}
-      <div
-        className="w-[72px] h-[72px] rounded-[20px] flex items-center justify-center text-white text-[26px] font-bold mx-auto mb-3"
-        style={{ background: avatarGradient(conversation.name) }}
-      >
-        {getInitials(conversation.name)}
+      <div className="mx-auto mb-3">
+        <Avatar
+          name={conversation.name}
+          participantId={conversation.isGroup ? undefined : conversation.participants.find((p) => !p.isMe)?.id}
+          size={72}
+          rounded="20px"
+        />
       </div>
 
       {/* Name */}
@@ -174,12 +163,7 @@ export default function DetailPanel({ conversationId, conversation, focusPartici
           </div>
           {conversation.participants.filter((p) => !p.isMe).map((p) => (
             <div key={p.id} className="flex items-center gap-2.5 py-1.5">
-              <div
-                className="w-8 h-8 rounded-[10px] flex items-center justify-center text-white text-[11px] font-semibold flex-shrink-0"
-                style={{ background: avatarGradient(p.avatarColor || '#3b82f6') }}
-              >
-                {getInitials(p.name)}
-              </div>
+              <Avatar name={p.name} participantId={p.id} size={32} rounded="10px" gradientKey={p.avatarColor || undefined} />
               <div className="min-w-0">
                 <div className="text-[13px] truncate">{p.name}</div>
                 {p.number && p.number !== p.name && (

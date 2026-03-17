@@ -1,9 +1,9 @@
 #!/bin/bash
-# Patches the local Electron.app bundle to show "Android Messages" in macOS
+# Patches the local Electron.app bundle to show "Cipher" in macOS
 set -e
 
 ELECTRON_APP="node_modules/electron/dist/Electron.app"
-RENAMED_APP="node_modules/electron/dist/Android Messages.app"
+RENAMED_APP="node_modules/electron/dist/Cipher.app"
 
 # Determine which bundle exists
 if [ -d "$RENAMED_APP" ]; then
@@ -19,9 +19,9 @@ PLIST="$APP_DIR/Contents/Info.plist"
 
 # Patch Info.plist (name, identifier, and icon)
 /usr/libexec/PlistBuddy \
-  -c 'Set :CFBundleName "Android Messages"' \
-  -c 'Set :CFBundleDisplayName "Android Messages"' \
-  -c 'Set :CFBundleIdentifier "com.android-messages"' \
+  -c 'Set :CFBundleName "Cipher"' \
+  -c 'Set :CFBundleDisplayName "Cipher"' \
+  -c 'Set :CFBundleIdentifier "com.cipher-messages"' \
   -c 'Set :CFBundleIconFile "icon.icns"' \
   "$PLIST" 2>/dev/null || true
 

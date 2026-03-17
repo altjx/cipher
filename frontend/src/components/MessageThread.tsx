@@ -3,25 +3,12 @@ import { Send, Paperclip, X, Search, MoreVertical, Smile, Info, Clock } from 'lu
 import type { Message, Conversation, WsNewMessage, WsMessageUpdate, WsMessageStatus, WsTyping } from '../api/client';
 import { fetchMessages, sendMessage, sendMedia, sendMultiMedia, sendReaction, markRead, requestFullSizeImage, setTyping, deleteMessage } from '../api/client';
 import MessageBubble from './MessageBubble';
-import { avatarGradient, senderColor } from '../utils/avatarGradient';
+import { senderColor } from '../utils/avatarGradient';
+import Avatar from './Avatar';
 import ImageStack from './ImageStack';
 import ImageLightbox, { type LightboxImage } from './ImageLightbox';
 import { getMediaUrl } from './MediaPlayer';
 import EmojiPicker from './EmojiPicker';
-
-const EMOJI_RE = /\p{Extended_Pictographic}/gu;
-
-function getInitials(name: string): string {
-  return name
-    .replace(EMOJI_RE, '')
-    .trim()
-    .split(/\s+/)
-    .map((w) => w[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
-}
 
 interface MessageThreadProps {
   conversationId: string;
@@ -93,16 +80,39 @@ export default function MessageThread({ conversationId, conversation, subscribe,
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
-  // When an image finishes loading, re-scroll if the user is near the bottom.
-  // This prevents layout shifts from pushing the viewport up after the initial scroll.
+  // Track whether we're in the initial scroll window (images may still be loading)
+  const initialScrollRef = useRef(false);
+
+  // When an image finishes loading, re-scroll if we're still in the initial load
+  // window OR the user is near the bottom. This prevents layout shifts from
+  // images pushing the last message out of view.
   const handleImageLoad = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    // During initial load window, always re-scroll regardless of position
+    if (initialScrollRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
+      return;
+    }
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     if (distanceFromBottom < 400) {
       bottomRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
     }
   }, []);
+
+  // When the window regains focus, mark the latest message as read (if we skipped it while unfocused)
+  useEffect(() => {
+    const handleFocus = () => {
+      const msgs = messageCache.get(conversationId)?.messages;
+      if (!msgs || msgs.length === 0) return;
+      const last = msgs[msgs.length - 1];
+      if (!last.sender.isMe) {
+        markRead(conversationId, last.id).catch(() => {});
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [conversationId]);
 
   // When the typing indicator appears, scroll it into view if the user is near the bottom.
   useEffect(() => {
@@ -217,7 +227,7 @@ export default function MessageThread({ conversationId, conversation, subscribe,
 
       if (res.messages.length > 0) {
         const last = res.messages[res.messages.length - 1];
-        if (!last.sender.isMe) {
+        if (!last.sender.isMe && document.hasFocus()) {
           markRead(conversationId, last.id).catch(() => {});
         }
       }
@@ -228,13 +238,21 @@ export default function MessageThread({ conversationId, conversation, subscribe,
     return () => { cancelled = true; };
   }, [conversationId]);
 
-  // Scroll to bottom after initial load or conversation switch
+  // Scroll to bottom after initial load or conversation switch.
+  // Keep re-scrolling for a short window so that lazily-loaded images
+  // don't push the last message out of view.
   useEffect(() => {
     if (messages.length === 0) return;
-    // Use rAF to let the browser lay out content (especially images with explicit dimensions)
+    initialScrollRef.current = true;
+    // Immediate scroll
     requestAnimationFrame(() => {
       bottomRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
     });
+    // Keep the initial-scroll window open for 1.5s to catch late-loading images
+    const timer = setTimeout(() => {
+      initialScrollRef.current = false;
+    }, 1500);
+    return () => { clearTimeout(timer); initialScrollRef.current = false; };
   }, [scrollGeneration]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Scroll to target message (from search)
@@ -316,7 +334,7 @@ export default function MessageThread({ conversationId, conversation, subscribe,
           });
           return updated;
         });
-        if (!msg.sender.isMe) {
+        if (!msg.sender.isMe && document.hasFocus()) {
           markRead(conversationId, msg.id).catch(() => {});
         }
         setTimeout(scrollToBottom, 50);
@@ -338,7 +356,7 @@ export default function MessageThread({ conversationId, conversation, subscribe,
         });
         if (d.messages.length > 0) {
           const last = d.messages[d.messages.length - 1];
-          if (!last.sender.isMe) {
+          if (!last.sender.isMe && document.hasFocus()) {
             markRead(conversationId, last.id).catch(() => {});
           }
         }
@@ -768,6 +786,7 @@ export default function MessageThread({ conversationId, conversation, subscribe,
               isMe={msg.sender.isMe}
               showSender={showSender}
               onImageClick={(url) => handleImageClick(url, stackImages)}
+              onImageLoad={handleImageLoad}
               isGroup={conversation?.isGroup}
               senderColor={senderColorMap.get(msg.sender.id)}
             />
@@ -830,12 +849,12 @@ export default function MessageThread({ conversationId, conversation, subscribe,
       <div className="titlebar-drag flex-shrink-0 border-b border-[var(--border)] flex items-center px-6 gap-3.5" style={{ minHeight: '56px' }}>
         {conversation && (
           <>
-            <div
-              className="w-[38px] h-[38px] rounded-xl flex items-center justify-center text-white text-[13px] font-semibold flex-shrink-0"
-              style={{ background: avatarGradient(conversation.participants[0]?.avatarColor ?? '#3b82f6') }}
-            >
-              {getInitials(conversation.name)}
-            </div>
+            <Avatar
+              name={conversation.name}
+              participantId={conversation.isGroup ? undefined : conversation.participants.find((p) => !p.isMe)?.id}
+              size={38}
+              rounded="12px"
+            />
             <div className="min-w-0 flex-1">
               <h2 className="text-sm font-semibold text-[var(--text)] truncate">{conversation.name}</h2>
               {conversation.isGroup ? (

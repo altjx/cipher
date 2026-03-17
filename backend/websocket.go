@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sync"
 
@@ -9,20 +10,31 @@ import (
 	"github.com/rs/zerolog"
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		origin := r.Header.Get("Origin")
-		return origin == "" ||
-			origin == "null" || // Electron file:// origin
-			origin == "http://localhost:5173" ||
-			origin == "http://localhost:8080"
-	},
+// newUpgrader creates a WebSocket upgrader that only allows localhost origins.
+func newUpgrader(port int) websocket.Upgrader {
+	allowedOrigins := map[string]bool{
+		"http://localhost:5173":                          true,
+		fmt.Sprintf("http://localhost:%d", port):         true,
+		"http://127.0.0.1:5173":                         true,
+		fmt.Sprintf("http://127.0.0.1:%d", port):        true,
+	}
+	return websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			// Allow no-origin requests (e.g. from Electron main process)
+			if origin == "" {
+				return true
+			}
+			return allowedOrigins[origin]
+		},
+	}
 }
 
 type WSHub struct {
-	clients map[*WSClient]bool
-	mu      sync.RWMutex
-	logger  zerolog.Logger
+	clients  map[*WSClient]bool
+	mu       sync.RWMutex
+	logger   zerolog.Logger
+	upgrader websocket.Upgrader
 }
 
 type WSClient struct {
@@ -30,15 +42,16 @@ type WSClient struct {
 	send chan []byte
 }
 
-func NewWSHub(logger zerolog.Logger) *WSHub {
+func NewWSHub(logger zerolog.Logger, port int) *WSHub {
 	return &WSHub{
-		clients: make(map[*WSClient]bool),
-		logger:  logger.With().Str("component", "websocket").Logger(),
+		clients:  make(map[*WSClient]bool),
+		logger:   logger.With().Str("component", "websocket").Logger(),
+		upgrader: newUpgrader(port),
 	}
 }
 
 func (h *WSHub) HandleWS(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("Failed to upgrade WebSocket connection")
 		return

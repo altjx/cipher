@@ -116,6 +116,7 @@ type SendReactionRequest struct {
 type MarkReadRequest struct {
 	ConversationID string `json:"conversationId"`
 	MessageID      string `json:"messageId"`
+	SendReceipt    *bool  `json:"sendReceipt,omitempty"` // nil or true = send, false = local-only
 }
 
 type ContactListResponse struct {

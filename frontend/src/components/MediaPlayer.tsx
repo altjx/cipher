@@ -62,7 +62,7 @@ function ImageView({
         src={url}
         alt={item.fileName}
         className={`rounded-[14px] cursor-pointer hover:opacity-90 transition-opacity ${
-          compact ? 'w-full aspect-square object-cover' : 'max-w-[300px]'
+          compact ? 'w-full aspect-square object-cover' : 'max-w-[300px] min-h-[150px]'
         } ${loaded ? '' : 'hidden'}`}
         onLoad={() => { setLoaded(true); onLoadProp?.(); }}
         onError={() => setError(true)}

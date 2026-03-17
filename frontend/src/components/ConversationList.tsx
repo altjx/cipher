@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, MessageCircle, PanelLeftClose, PanelLeftOpen, Trash2, Archive, BellOff, Ban, SquarePen } from 'lucide-react';
+import { Search, MessageCircle, PanelLeftClose, PanelLeftOpen, Trash2, Archive, BellOff, Ban, SquarePen, Settings } from 'lucide-react';
 import type { Conversation, WsConversationUpdate, WsTyping, SearchResult } from '../api/client';
 import { searchMessages, fetchConversations, deleteConversation, archiveConversation, muteConversation, blockConversation } from '../api/client';
-import { avatarGradient } from '../utils/avatarGradient';
+import Avatar from './Avatar';
 
 interface ConversationListProps {
   conversations: Conversation[];
@@ -19,22 +19,14 @@ interface ConversationListProps {
   onToggleCollapse: () => void;
   focusSearchTrigger?: number;
   onCompose?: () => void;
+  onSettings?: () => void;
 }
 
 type TabType = 'all' | 'unread' | 'groups' | 'archived' | 'spam';
 
-const EMOJI_RE = /\p{Extended_Pictographic}/gu;
-
-function getInitials(name: string): string {
-  return name
-    .replace(EMOJI_RE, '')
-    .trim()
-    .split(/\s+/)
-    .map((w) => w[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
+function getConversationAvatarId(conv: Conversation): string | undefined {
+  if (conv.isGroup) return undefined;
+  return conv.participants.find((p) => !p.isMe)?.id;
 }
 
 function relativeTime(ts: number): string {
@@ -84,6 +76,7 @@ export default function ConversationList({
   onToggleCollapse,
   focusSearchTrigger,
   onCompose,
+  onSettings,
 }: ConversationListProps) {
   const [search, setSearch] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -325,13 +318,12 @@ export default function ConversationList({
                 key={conv.id}
                 ref={(el) => { if (el) itemRefs.current.set(conv.id, el); else itemRefs.current.delete(conv.id); }}
                 onClick={() => onSelect(conv.id)}
-                className={`w-11 h-11 rounded-[14px] flex-shrink-0 flex items-center justify-center text-white text-[13px] font-semibold cursor-pointer transition-all relative ${
-                  isSelected ? 'ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--surface-1)]' : 'hover:opacity-80'
+                className={`cursor-pointer transition-all relative ${
+                  isSelected ? 'ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--surface-1)] rounded-[14px]' : 'hover:opacity-80'
                 }`}
-                style={{ background: avatarGradient(conv.name) }}
                 title={conv.name}
               >
-                {getInitials(conv.name)}
+                <Avatar name={conv.name} participantId={getConversationAvatarId(conv)} size={44} />
                 {conv.unread && (
                   <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-[var(--accent)] rounded-full border-2 border-[var(--surface-1)]" />
                 )}
@@ -368,6 +360,15 @@ export default function ConversationList({
           <span className={`ml-auto text-[11px] font-medium ${status.color} ${status.bg} px-2.5 py-0.5 rounded-full`}>
             {status.label}
           </span>
+          {onSettings && (
+            <button
+              onClick={onSettings}
+              className="w-9 h-9 rounded-[10px] flex items-center justify-center text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text)] transition-all cursor-pointer"
+              title="Settings (Cmd+,)"
+            >
+              <Settings className="w-[18px] h-[18px]" />
+            </button>
+          )}
           {onCompose && (
             <button
               onClick={onCompose}
@@ -464,12 +465,7 @@ export default function ConversationList({
                     isSelected ? 'bg-[var(--accent-soft)]' : 'hover:bg-[rgba(255,255,255,0.03)]'
                   }`}
                 >
-                  <div
-                    className="w-11 h-11 rounded-[14px] flex-shrink-0 flex items-center justify-center text-white text-[15px] font-semibold"
-                    style={{ background: avatarGradient(conv.name) }}
-                  >
-                    {getInitials(conv.name)}
-                  </div>
+                  <Avatar name={conv.name} participantId={getConversationAvatarId(conv)} size={44} />
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-0.5">
@@ -488,8 +484,12 @@ export default function ConversationList({
                           {[...typingMap.get(conv.id)!].join(', ')} {typingMap.get(conv.id)!.size === 1 ? 'is' : 'are'} typing...
                         </span>
                       ) : (
-                        <span className="text-xs text-[var(--text-2)] truncate">
-                          {conv.lastMessage ? truncate(conv.lastMessage.text, 40) : ''}
+                        <span className={`text-xs truncate ${conv.lastMessage && !conv.lastMessage.text ? 'text-[var(--text-3)] italic' : 'text-[var(--text-2)]'}`}>
+                          {conv.lastMessage
+                            ? conv.lastMessage.text
+                              ? truncate(conv.lastMessage.text, 40)
+                              : 'Attachment'
+                            : ''}
                         </span>
                       )}
                       {conv.unread && (

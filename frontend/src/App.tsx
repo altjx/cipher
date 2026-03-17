@@ -8,6 +8,7 @@ import MessageThread from './components/MessageThread';
 import DetailPanel from './components/DetailPanel';
 import CommandPalette from './components/CommandPalette';
 import ComposeDialog from './components/ComposeDialog';
+import SettingsPanel from './components/SettingsPanel';
 
 type AppView = 'loading' | 'pairing' | 'main';
 
@@ -28,6 +29,7 @@ export default function App() {
   const [searchTrigger, setSearchTrigger] = useState(0);        // Cmd+F: find in conversation
   const [globalSearchTrigger, setGlobalSearchTrigger] = useState(0); // Cmd+S: search all
   const [composeOpen, setComposeOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [emojiInsert, setEmojiInsert] = useState<{ emoji: string; seq: number }>({ emoji: '', seq: 0 });
   const [reactionEmoji, setReactionEmoji] = useState<{ emoji: string; seq: number }>({ emoji: '', seq: 0 });
   const reactChordArmed = useRef(false);
@@ -224,6 +226,10 @@ export default function App() {
           e.preventDefault();
           setComposeOpen(true);
           break;
+        case ',': // Cmd+,: Settings
+          e.preventDefault();
+          setSettingsOpen(true);
+          break;
         case 't': // Cmd+T: Change theme
           e.preventDefault();
           setPaletteInitialMode('themes');
@@ -308,6 +314,9 @@ export default function App() {
           setDetailParticipantId(null);
         }
         break;
+      case 'open-settings':
+        setSettingsOpen(true);
+        break;
     }
     setRefocusTrigger((v) => v + 1);
   }, [navigateConversation, selectedConversationId]);
@@ -366,6 +375,7 @@ export default function App() {
         onToggleCollapse={toggleSidebar}
         focusSearchTrigger={globalSearchTrigger}
         onCompose={() => setComposeOpen(true)}
+        onSettings={() => setSettingsOpen(true)}
       />
 
       {selectedConversationId ? (
@@ -419,6 +429,10 @@ export default function App() {
           onConversationCreated={handleConversationCreated}
           onClose={() => setComposeOpen(false)}
         />
+      )}
+
+      {settingsOpen && (
+        <SettingsPanel onClose={() => setSettingsOpen(false)} />
       )}
 
       {deleteConfirm && (

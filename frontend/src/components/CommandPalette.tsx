@@ -1,26 +1,12 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Search, MessageCircle, ArrowRight, PanelLeftClose,
-  Info, ChevronLeft, ChevronRight, Keyboard, Command, Palette, Check,
+  Info, ChevronLeft, ChevronRight, Keyboard, Command, Palette, Check, Settings,
 } from 'lucide-react';
 import type { Conversation } from '../api/client';
-import { avatarGradient } from '../utils/avatarGradient';
 import { themeOrder, themeMap, applyTheme } from '../config/themes';
 import { useTheme } from '../context/ThemeContext';
-
-const EMOJI_RE = /\p{Extended_Pictographic}/gu;
-
-function getInitials(name: string): string {
-  return name
-    .replace(EMOJI_RE, '')
-    .trim()
-    .split(/\s+/)
-    .map((w) => w[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
-}
+import Avatar from './Avatar';
 
 // ---- Command definitions ----
 
@@ -111,6 +97,15 @@ const COMMANDS: CommandDef[] = [
     requiresConversation: true,
   },
   {
+    id: 'settings',
+    label: 'Settings',
+    category: 'View',
+    keywords: ['preferences', 'options', 'theme', 'sound', 'notification', 'appearance', 'config'],
+    icon: <Settings className="w-4 h-4" />,
+    shortcut: '⌘,',
+    action: 'open-settings',
+  },
+  {
     id: 'shortcuts',
     label: 'Keyboard shortcuts',
     category: 'View',
@@ -135,6 +130,7 @@ const SHORTCUT_LIST = [
   { keys: '⌘ L', description: 'Toggle sidebar' },
   { keys: '⌘ I', description: 'Toggle info panel' },
   { keys: '⌘ T', description: 'Change theme' },
+  { keys: '⌘ ,', description: 'Settings' },
   { keys: '⌘ D', description: 'Delete conversation' },
   { keys: '⌘ 1-7', description: 'Insert emoji (💯❤️😂👍😮😢🙏)' },
   { keys: '⌘ X, 1-7', description: 'React to last message' },
@@ -459,12 +455,12 @@ export default function CommandPalette({
           idx === selectedIndex ? 'bg-[var(--accent-soft)]' : 'hover:bg-[rgba(255,255,255,0.03)]'
         }`}
       >
-        <div
-          className="w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center text-white text-[12px] font-semibold"
-          style={{ background: avatarGradient(conv.name) }}
-        >
-          {getInitials(conv.name)}
-        </div>
+        <Avatar
+          name={conv.name}
+          participantId={conv.isGroup ? undefined : conv.participants.find((p: { isMe: boolean }) => !p.isMe)?.id}
+          size={36}
+          rounded="12px"
+        />
         <div className="flex-1 min-w-0 text-left">
           <div className="text-[13px] font-medium text-[var(--text)] truncate">{conv.name}</div>
           <div className="text-[11px] text-[var(--text-3)] truncate">

@@ -27,11 +27,53 @@ const STATUS_POLL_TIMEOUT_MS = 15_000;
 const isDev = !app.isPackaged;
 
 // Set app name and dock icon for dev mode
-app.setName('Android Messages');
+app.setName('Cipher');
 if (isDev && process.platform === 'darwin') {
   const iconPath = path.join(__dirname, '..', 'assets', 'icon.png');
   if (fs.existsSync(iconPath)) {
     app.dock?.setIcon(nativeImage.createFromPath(iconPath));
+  }
+}
+
+// ─── Settings ────────────────────────────────────────────────────────────────
+
+interface AppSettings {
+  notificationSound: string; // sound name like "Glass", or "none" for silent
+}
+
+const DEFAULT_SETTINGS: AppSettings = {
+  notificationSound: 'Glass',
+};
+
+let currentSettings: AppSettings = { ...DEFAULT_SETTINGS };
+
+function loadSettings(): AppSettings {
+  try {
+    const settingsPath = path.join(getDataDir(), 'settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const raw = fs.readFileSync(settingsPath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      currentSettings = { ...DEFAULT_SETTINGS, ...parsed };
+    } else {
+      currentSettings = { ...DEFAULT_SETTINGS };
+    }
+  } catch (err) {
+    console.error('[electron] Failed to load settings:', err);
+    currentSettings = { ...DEFAULT_SETTINGS };
+  }
+  return currentSettings;
+}
+
+function saveSettings(settings: AppSettings): void {
+  try {
+    const dataDir = getDataDir();
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    const settingsPath = path.join(dataDir, 'settings.json');
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('[electron] Failed to save settings:', err);
   }
 }
 
@@ -73,7 +115,7 @@ function getFrontendDir(): string {
 }
 
 function getDataDir(): string {
-  return path.join(app.getPath('userData'), 'google-messages-data');
+  return path.join(app.getPath('userData'), 'cipher-data');
 }
 
 /**
@@ -283,7 +325,7 @@ function handleNewMessage(data: Record<string, unknown>): void {
     const notification = new Notification({
       title: sender?.name ?? 'New Message',
       body: text ?? '',
-      silent: false,
+      silent: true,
     });
 
     notification.on('click', () => {
@@ -298,6 +340,16 @@ function handleNewMessage(data: Record<string, unknown>): void {
     });
 
     notification.show();
+
+    // Play configured notification sound
+    if (currentSettings.notificationSound && currentSettings.notificationSound !== 'none') {
+      const soundPath = `/System/Library/Sounds/${currentSettings.notificationSound}.aiff`;
+      execFile('afplay', [soundPath], (err) => {
+        if (err) {
+          console.error('[electron] Failed to play notification sound:', err.message);
+        }
+      });
+    }
   }
 
   // Forward to renderer
@@ -338,7 +390,7 @@ function createWindow(): void {
     minWidth: 800,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
-    title: 'Android Messages',
+    title: 'Cipher',
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
     show: false,
     webPreferences: {
@@ -453,6 +505,44 @@ function setupIpcHandlers(): void {
   ipcMain.handle('get-backend-url', () => BACKEND_URL);
   ipcMain.handle('get-ws-url', () => WS_URL);
 
+  ipcMain.handle('get-settings', () => currentSettings);
+
+  ipcMain.handle('set-notification-sound', (_event, name: string) => {
+    currentSettings.notificationSound = name;
+    saveSettings(currentSettings);
+    return currentSettings;
+  });
+
+  ipcMain.handle('preview-sound', (_event, name: string) => {
+    if (!name || name === 'none') {
+      return { success: true };
+    }
+    return new Promise<{ success: boolean; error?: string }>((resolve) => {
+      const soundPath = `/System/Library/Sounds/${name}.aiff`;
+      execFile('afplay', [soundPath], (err) => {
+        if (err) {
+          resolve({ success: false, error: err.message });
+        } else {
+          resolve({ success: true });
+        }
+      });
+    });
+  });
+
+  ipcMain.handle('get-available-sounds', () => {
+    try {
+      const soundDir = '/System/Library/Sounds';
+      const files = fs.readdirSync(soundDir);
+      return files
+        .filter((f) => f.endsWith('.aiff'))
+        .map((f) => f.replace(/\.aiff$/, ''))
+        .sort();
+    } catch (err) {
+      console.error('[electron] Failed to read system sounds:', err);
+      return [];
+    }
+  });
+
   ipcMain.handle('open-image-in-preview', async (_event, imageUrl: string) => {
     try {
       // Fetch the image from the backend
@@ -470,7 +560,7 @@ function setupIpcHandlers(): void {
       // Write to a temp file
       const tmpDir = app.getPath('temp');
       const ext = imageUrl.includes('heic') ? '.heic' : '.jpg';
-      const tmpFile = path.join(tmpDir, `gm-preview-${Date.now()}${ext}`);
+      const tmpFile = path.join(tmpDir, `cipher-preview-${Date.now()}${ext}`);
       fs.writeFileSync(tmpFile, data);
 
       // Open in Preview (macOS)
@@ -493,6 +583,8 @@ function setupIpcHandlers(): void {
 app.whenReady().then(async () => {
   buildMenu();
   setupIpcHandlers();
+
+  loadSettings();
 
   try {
     await spawnBackend();
