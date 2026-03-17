@@ -18,4 +18,8 @@ cd electron
 npm run build
 cd ..
 
-echo "==> Done! Android Messages.app installed to /Applications/"
+echo "==> Re-signing app..."
+codesign --force --sign - "/Applications/Cipher.app/Contents/Resources/backend"
+codesign --deep --force --sign - "/Applications/Cipher.app"
+
+echo "==> Done! Cipher.app installed to /Applications/"

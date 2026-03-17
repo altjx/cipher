@@ -3,6 +3,8 @@ import { MessageSquareReply, SmilePlus, Check, CheckCheck, Trash2, RotateCcw } f
 import type { Message } from '../api/client';
 import MediaPlayer from './MediaPlayer';
 import EmojiPicker from './EmojiPicker';
+import LinkPreview from './LinkPreview';
+import Avatar from './Avatar';
 
 interface MessageBubbleProps {
   message: Message;
@@ -139,11 +141,8 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
       <div className="flex items-end gap-2 relative max-w-[50%]">
         {/* Group chat avatar */}
         {showGroupStyle && showSender && (
-          <div
-            className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-semibold flex-shrink-0 mb-0.5"
-            style={{ background: `linear-gradient(135deg, ${sColor}, ${sColor}dd)` }}
-          >
-            {getInitials(message.sender.name)}
+          <div className="mb-0.5">
+            <Avatar name={message.sender.name} participantId={message.sender.id} size={28} rounded="9999px" gradientKey={sColor} />
           </div>
         )}
         {showGroupStyle && !showSender && (
@@ -231,6 +230,10 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
 
           {message.text && (
             <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{linkifyText(message.text)}</p>
+          )}
+
+          {message.text && URL_RE.test(message.text) && (
+            <LinkPreview text={message.text} isMe={isMe} />
           )}
 
           <div className={`flex items-center gap-1 mt-1 ${isMe ? 'justify-end' : 'justify-start'} ${showTimestamp ? '' : 'hidden'}`}>

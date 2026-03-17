@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import type { Message } from '../api/client';
 import { getMediaUrl } from './MediaPlayer';
+import Avatar from './Avatar';
 
 interface ImageStackProps {
   messages: Message[];
   isMe: boolean;
   showSender: boolean;
   onImageClick: (url: string) => void;
+  onImageLoad?: () => void;
   isGroup?: boolean;
   senderColor?: string;
 }
@@ -16,21 +18,7 @@ function formatTime(ts: number): string {
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
-const EMOJI_RE = /\p{Extended_Pictographic}/gu;
-
-function getInitials(name: string): string {
-  return name
-    .replace(EMOJI_RE, '')
-    .trim()
-    .split(/\s+/)
-    .map((w) => w[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
-}
-
-export default function ImageStack({ messages, isMe, showSender, onImageClick, isGroup, senderColor }: ImageStackProps) {
+export default function ImageStack({ messages, isMe, showSender, onImageClick, onImageLoad, isGroup, senderColor }: ImageStackProps) {
   const [hovered, setHovered] = useState(false);
   const alignment = isMe ? 'items-end' : 'items-start';
   const showGroupStyle = isGroup && !isMe && !!senderColor;
@@ -57,11 +45,8 @@ export default function ImageStack({ messages, isMe, showSender, onImageClick, i
       <div className="flex items-end gap-2">
         {/* Group chat avatar */}
         {showGroupStyle && showSender && (
-          <div
-            className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-semibold flex-shrink-0 mb-0.5"
-            style={{ background: `linear-gradient(135deg, ${senderColor}, ${senderColor}dd)` }}
-          >
-            {getInitials(firstMsg.sender.name)}
+          <div className="mb-0.5">
+            <Avatar name={firstMsg.sender.name} participantId={firstMsg.sender.id} size={28} rounded="9999px" gradientKey={senderColor} />
           </div>
         )}
         {showGroupStyle && !showSender && (
@@ -112,6 +97,7 @@ export default function ImageStack({ messages, isMe, showSender, onImageClick, i
                 src={url}
                 alt=""
                 className="w-full h-full object-cover"
+                onLoad={onImageLoad}
               />
               <div className="absolute inset-0 bg-black/10" />
             </div>
@@ -132,6 +118,7 @@ export default function ImageStack({ messages, isMe, showSender, onImageClick, i
             src={frontUrl}
             alt=""
             className="w-full h-full object-cover"
+            onLoad={onImageLoad}
           />
 
           {/* Count badge */}

@@ -2,25 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import { X, Search, Loader2 } from 'lucide-react';
 import type { Contact } from '../api/client';
 import { fetchContacts, searchContacts, createConversation } from '../api/client';
-import { avatarGradient } from '../utils/avatarGradient';
+import Avatar from './Avatar';
 
 interface ComposeDialogProps {
   onConversationCreated: (conversationId: string) => void;
   onClose: () => void;
-}
-
-const EMOJI_RE = /\p{Extended_Pictographic}/gu;
-
-function getInitials(name: string): string {
-  return name
-    .replace(EMOJI_RE, '')
-    .trim()
-    .split(/\s+/)
-    .map((w) => w[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
 }
 
 export default function ComposeDialog({ onConversationCreated, onClose }: ComposeDialogProps) {
@@ -163,12 +149,7 @@ export default function ComposeDialog({ onConversationCreated, onClose }: Compos
               disabled={creating}
               className="w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors cursor-pointer rounded-xl hover:bg-[rgba(255,255,255,0.04)] disabled:opacity-50"
             >
-              <div
-                className="w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center text-white text-[12px] font-semibold"
-                style={{ background: avatarGradient(contact.avatarColor || contact.name) }}
-              >
-                {getInitials(contact.name)}
-              </div>
+              <Avatar name={contact.name} size={36} rounded="12px" gradientKey={contact.avatarColor || undefined} />
               <div className="min-w-0 flex-1">
                 <p className="text-[13px] font-medium text-[var(--text)] truncate">{contact.name}</p>
                 {contact.number && <p className="text-[11px] text-[var(--text-3)]">{contact.number}</p>}

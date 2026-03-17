@@ -37,4 +37,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /** Open an image URL in the native Preview app (macOS) or default viewer */
   openImageInPreview: (imageUrl: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('open-image-in-preview', imageUrl),
+
+  /** Get current app settings */
+  getSettings: (): Promise<{ notificationSound: string }> =>
+    ipcRenderer.invoke('get-settings'),
+
+  /** Set the notification sound (name like "Glass" or "none") */
+  setNotificationSound: (name: string): Promise<{ notificationSound: string }> =>
+    ipcRenderer.invoke('set-notification-sound', name),
+
+  /** Preview a notification sound */
+  previewSound: (name: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('preview-sound', name),
+
+  /** Get list of available system sounds */
+  getAvailableSounds: (): Promise<string[]> =>
+    ipcRenderer.invoke('get-available-sounds'),
 });

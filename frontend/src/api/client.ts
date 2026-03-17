@@ -217,6 +217,10 @@ declare global {
       onWsEvent: (callback: (event: { type: string; data: unknown }) => void) => void;
       onNavigateToConversation: (callback: (conversationId: string) => void) => void;
       openImageInPreview: (imageUrl: string) => Promise<{ success: boolean; error?: string }>;
+      getSettings: () => Promise<{ notificationSound: string }>;
+      setNotificationSound: (name: string) => Promise<{ notificationSound: string }>;
+      previewSound: (name: string) => Promise<{ success: boolean; error?: string }>;
+      getAvailableSounds: () => Promise<string[]>;
     };
   }
 }
@@ -378,8 +382,17 @@ export function sendMultiMedia(convId: string, files: File[], replyToId?: string
   });
 }
 
+export function getSendReadReceipts(): boolean {
+  return localStorage.getItem('sendReadReceipts') !== 'false';
+}
+
+export function setSendReadReceipts(value: boolean): void {
+  localStorage.setItem('sendReadReceipts', String(value));
+}
+
 export function markRead(convId: string, msgId: string): Promise<void> {
-  const body: MarkReadRequest = { conversationId: convId, messageId: msgId };
+  const sendReceipt = getSendReadReceipts();
+  const body = { conversationId: convId, messageId: msgId, sendReceipt };
   return request<void>('/api/mark-read', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -425,6 +438,21 @@ export interface SearchResponse {
 
 export function searchMessages(query: string): Promise<SearchResponse> {
   return request<SearchResponse>(`/api/search?q=${encodeURIComponent(query)}`);
+}
+
+// Link Previews
+
+export interface LinkPreview {
+  url: string;
+  title: string;
+  description: string;
+  imageUrl: string;
+  siteName: string;
+  domain: string;
+}
+
+export function fetchLinkPreview(url: string): Promise<LinkPreview> {
+  return request<LinkPreview>(`/api/link-preview?url=${encodeURIComponent(url)}`);
 }
 
 export function fetchConversationMedia(convId: string, cursor?: string): Promise<MessagesResponse> {

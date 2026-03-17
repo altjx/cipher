@@ -1,16 +1,16 @@
 {
-  "name": "android-messages",
+  "name": "cipher",
   "version": "1.0.0",
-  "description": "Desktop client for Android Messages",
+  "description": "Desktop client for Google Messages",
   "main": "dist/main.js",
   "scripts": {
-    "dev": "tsc && bash scripts/patch-electron-name.sh && open -W \"node_modules/electron/dist/Android Messages.app\" --args \"$PWD/dist/main.js\"",
-    "build": "tsc && electron-builder && cp -R \"dist/mac-arm64/Android Messages.app\" /Applications/",
+    "dev": "tsc && bash scripts/patch-electron-name.sh && open -W \"node_modules/electron/dist/Cipher.app\" --args \"$PWD/dist/main.js\"",
+    "build": "tsc && electron-builder && cp -R \"dist/mac-arm64/Cipher.app\" /Applications/",
     "typecheck": "tsc --noEmit"
   },
   "build": {
-    "appId": "com.android-messages",
-    "productName": "Android Messages",
+    "appId": "com.cipher-messages",
+    "productName": "Cipher",
     "mac": {
       "category": "public.app-category.social-networking",
       "icon": "assets/icon.icns",
@@ -19,8 +19,7 @@
       ]
     },
     "files": [
-      "dist/**/*",
-      "node_modules/**/*"
+      "dist/**/*.js"
     ],
     "extraResources": [
       {

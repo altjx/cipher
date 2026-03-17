@@ -8,13 +8,14 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/rs/zerolog"
 	"go.mau.fi/mautrix-gmessages/pkg/libgm/util"
 )
 
 func init() {
-	util.BrowserDetailsMessage.OS = "Android Messages for Mac"
+	util.BrowserDetailsMessage.OS = "Cipher for Mac"
 }
 
 func main() {
@@ -43,9 +44,9 @@ func main() {
 	defer db.Close()
 
 	// Initialize WebSocket hub
-	hub := NewWSHub(logger)
+	hub := NewWSHub(logger, *port)
 
-	// Initialize Google Messages client
+	// Initialize client
 	gmClient := NewGMClient(*dataDir, logger, hub, db)
 
 	// Try to restore existing session
@@ -55,9 +56,9 @@ func main() {
 
 	// Set up HTTP handlers and server
 	handlers := NewHandlers(gmClient, db)
-	server := NewServer(handlers, hub, logger, *frontendDir)
+	server := NewServer(handlers, hub, logger, *frontendDir, *port)
 
-	addr := fmt.Sprintf(":%d", *port)
+	addr := fmt.Sprintf("127.0.0.1:%d", *port)
 	logger.Info().Str("addr", addr).Msg("Starting HTTP server")
 
 	// Graceful shutdown
@@ -74,7 +75,13 @@ func main() {
 		os.Exit(0)
 	}()
 
-	if err := http.ListenAndServe(addr, server.Handler()); err != nil {
+	httpServer := &http.Server{
+		Addr:              addr,
+		Handler:           server.Handler(),
+		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	if err := httpServer.ListenAndServe(); err != nil {
 		logger.Fatal().Err(err).Msg("Server failed")
 	}
 }

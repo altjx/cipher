@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Desktop Google Messages client built as three cooperating layers: a Go backend that wraps the `libgm` (mautrix-gmessages) library, a React frontend, and an Electron shell that manages both. The backend talks to Google's RCS servers via `libgm`, exposes a REST + WebSocket API, and caches data in SQLite. The frontend is a pure web app that consumes that API. Electron spawns the backend binary, proxies WebSocket events for native notifications and dock badges, and loads the frontend.
+Cipher — a desktop Google Messages client built as three cooperating layers: a Go backend that wraps the `libgm` (mautrix-gmessages) library, a React frontend, and an Electron shell that manages both. The backend talks to Google's RCS servers via `libgm`, exposes a REST + WebSocket API, and caches data in SQLite. The frontend is a pure web app that consumes that API. Electron spawns the backend binary, proxies WebSocket events for native notifications and dock badges, and loads the frontend.
 
 ## Architecture
 
