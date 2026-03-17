@@ -55,7 +55,7 @@ export default function QRPairing({ subscribe, onPaired }: QRPairingProps) {
     <div className="flex items-center justify-center min-h-screen bg-[var(--bg)]">
       <div className="bg-[var(--surface-1)] border border-[var(--border)] rounded-2xl p-10 max-w-md w-full mx-4 text-center shadow-[0_4px_24px_rgba(0,0,0,0.2)]">
         <h1 className="text-2xl font-semibold text-[var(--text)] mb-2">
-          Google Messages for Web
+          Cipher
         </h1>
         <p className="text-[var(--text-2)] mb-8 text-sm">
           Scan the QR code with your phone to pair

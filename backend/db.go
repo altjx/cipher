@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	_ "modernc.org/sqlite"
 
@@ -81,6 +82,16 @@ func (d *Database) migrate() error {
 		name TEXT NOT NULL DEFAULT '',
 		number TEXT NOT NULL DEFAULT '',
 		avatar_color TEXT NOT NULL DEFAULT ''
+	);
+
+	CREATE TABLE IF NOT EXISTS link_previews (
+		url TEXT PRIMARY KEY,
+		title TEXT NOT NULL DEFAULT '',
+		description TEXT NOT NULL DEFAULT '',
+		image_url TEXT NOT NULL DEFAULT '',
+		site_name TEXT NOT NULL DEFAULT '',
+		domain TEXT NOT NULL DEFAULT '',
+		created_at INTEGER NOT NULL DEFAULT 0
 	);
 	`
 	_, err := d.db.Exec(schema)
@@ -481,6 +492,54 @@ func (d *Database) GetMessageByID(messageID string) (*MessageResponse, error) {
 	}
 
 	return &m, nil
+}
+
+func (d *Database) MarkConversationRead(conversationID string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	_, err := d.db.Exec(`UPDATE conversations SET unread = 0 WHERE id = ?`, conversationID)
+	return err
+}
+
+func (d *Database) SaveLinkPreview(p *LinkPreviewResponse) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	_, err := d.db.Exec(`
+		INSERT INTO link_previews (url, title, description, image_url, site_name, domain, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(url) DO UPDATE SET
+			title=excluded.title, description=excluded.description,
+			image_url=excluded.image_url, site_name=excluded.site_name,
+			domain=excluded.domain, created_at=excluded.created_at
+	`, p.URL, p.Title, p.Description, p.ImageURL, p.SiteName, p.Domain, time.Now().Unix())
+	return err
+}
+
+func (d *Database) GetLinkPreview(url string) (*LinkPreviewResponse, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var p LinkPreviewResponse
+	var createdAt int64
+	err := d.db.QueryRow(`
+		SELECT url, title, description, image_url, site_name, domain, created_at
+		FROM link_previews WHERE url = ?
+	`, url).Scan(&p.URL, &p.Title, &p.Description, &p.ImageURL, &p.SiteName, &p.Domain, &createdAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	// Expire cache entries older than 7 days
+	if time.Now().Unix()-createdAt > 7*24*3600 {
+		return nil, nil
+	}
+
+	return &p, nil
 }
 
 func (d *Database) GetMediaMessages(conversationID string, limit int, cursor string) ([]MessageResponse, string, error) {

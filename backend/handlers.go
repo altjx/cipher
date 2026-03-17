@@ -129,10 +129,30 @@ func (h *Handlers) SendMessage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// allowedMediaTypes contains MIME type prefixes accepted for media uploads.
+var allowedMediaTypes = []string{
+	"image/",
+	"video/",
+	"audio/",
+	"application/pdf",
+	"text/vcard",
+	"text/x-vcard",
+}
+
+// isAllowedMediaType checks if the MIME type is in the allowed list.
+func isAllowedMediaType(mimeType string) bool {
+	for _, allowed := range allowedMediaTypes {
+		if strings.HasPrefix(mimeType, allowed) || mimeType == allowed {
+			return true
+		}
+	}
+	return false
+}
+
 // SendMedia sends a media message (single or multiple files).
 // POST /api/messages/media
 func (h *Handlers) SendMedia(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(64 << 20); err != nil { // 64 MB max for multi-file
+	if err := r.ParseMultipartForm(20 << 20); err != nil { // 20 MB max
 		writeError(w, http.StatusBadRequest, "Failed to parse multipart form")
 		return
 	}
@@ -151,6 +171,14 @@ func (h *Handlers) SendMedia(w http.ResponseWriter, r *http.Request) {
 		// Multi-file path
 		var files []MediaFile
 		for _, fh := range multiFiles {
+			mimeType := fh.Header.Get("Content-Type")
+			if mimeType == "" {
+				mimeType = "application/octet-stream"
+			}
+			if !isAllowedMediaType(mimeType) {
+				writeError(w, http.StatusBadRequest, "File type not allowed: "+mimeType)
+				return
+			}
 			f, err := fh.Open()
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "Failed to open file: "+fh.Filename)
@@ -161,10 +189,6 @@ func (h *Handlers) SendMedia(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "Failed to read file: "+fh.Filename)
 				return
-			}
-			mimeType := fh.Header.Get("Content-Type")
-			if mimeType == "" {
-				mimeType = "application/octet-stream"
 			}
 			files = append(files, MediaFile{Data: data, FileName: fh.Filename, MimeType: mimeType})
 		}
@@ -204,6 +228,10 @@ func (h *Handlers) SendMedia(w http.ResponseWriter, r *http.Request) {
 	mimeType := header.Header.Get("Content-Type")
 	if mimeType == "" {
 		mimeType = "application/octet-stream"
+	}
+	if !isAllowedMediaType(mimeType) {
+		writeError(w, http.StatusBadRequest, "File type not allowed: "+mimeType)
+		return
 	}
 
 	resp, err := h.client.SendMedia(conversationID, fileData, header.Filename, mimeType, replyToID)
@@ -342,9 +370,16 @@ func (h *Handlers) MarkRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.client.MarkRead(req.ConversationID, req.MessageID); err != nil {
-		writeError(w, http.StatusInternalServerError, "Failed to mark read: "+err.Error())
-		return
+	// Always clear unread locally
+	_ = h.db.MarkConversationRead(req.ConversationID)
+
+	// Only send read receipt to the remote side if requested (default: true)
+	sendReceipt := req.SendReceipt == nil || *req.SendReceipt
+	if sendReceipt {
+		if err := h.client.MarkRead(req.ConversationID, req.MessageID); err != nil {
+			writeError(w, http.StatusInternalServerError, "Failed to mark read: "+err.Error())
+			return
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)

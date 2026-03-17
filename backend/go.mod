@@ -1,4 +1,4 @@
-module github.com/anthropics/google-messages-client/backend
+module github.com/anthropics/cipher/backend
 
 go 1.25.0
 

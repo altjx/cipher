@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,14 +15,16 @@ type Server struct {
 	handlers *Handlers
 	hub      *WSHub
 	logger   zerolog.Logger
+	port     int
 }
 
-func NewServer(handlers *Handlers, hub *WSHub, logger zerolog.Logger, frontendDir string) *Server {
+func NewServer(handlers *Handlers, hub *WSHub, logger zerolog.Logger, frontendDir string, port int) *Server {
 	s := &Server{
 		router:   mux.NewRouter(),
 		handlers: handlers,
 		hub:      hub,
 		logger:   logger.With().Str("component", "server").Logger(),
+		port:     port,
 	}
 	s.setupRoutes()
 
@@ -44,6 +47,8 @@ func NewServer(handlers *Handlers, hub *WSHub, logger zerolog.Logger, frontendDi
 }
 
 func (s *Server) setupRoutes() {
+	// Security headers middleware
+	s.router.Use(s.securityHeadersMiddleware)
 	// CORS middleware
 	s.router.Use(s.corsMiddleware)
 
@@ -86,6 +91,9 @@ func (s *Server) setupRoutes() {
 	s.router.HandleFunc("/api/contacts", s.handlers.ListContacts).Methods("GET", "OPTIONS")
 	s.router.HandleFunc("/api/contacts/search", s.handlers.SearchContacts).Methods("GET", "OPTIONS")
 
+	// Link Previews
+	s.router.HandleFunc("/api/link-preview", s.handlers.GetLinkPreview).Methods("GET", "OPTIONS")
+
 	// Avatars
 	s.router.HandleFunc("/api/avatars/{id}", s.handlers.GetParticipantThumbnail).Methods("GET", "OPTIONS")
 
@@ -94,14 +102,15 @@ func (s *Server) setupRoutes() {
 }
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	allowedOrigins := map[string]bool{
+		"http://localhost:5173":                          true,
+		fmt.Sprintf("http://localhost:%d", s.port):       true,
+		"http://127.0.0.1:5173":                         true,
+		fmt.Sprintf("http://127.0.0.1:%d", s.port):      true,
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-
-		allowedOrigins := map[string]bool{
-			"http://localhost:5173": true,
-			"http://localhost:8080": true,
-			"null":                 true, // Electron file:// origin
-		}
 
 		if allowedOrigins[origin] {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -116,6 +125,16 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' ws://localhost:* ws://127.0.0.1:*")
 		next.ServeHTTP(w, r)
 	})
 }

@@ -2,26 +2,12 @@ import { useState, useEffect } from 'react';
 import { X, Users } from 'lucide-react';
 import type { Conversation } from '../api/client';
 import { getConversationDetails } from '../api/client';
-import { avatarGradient } from '../utils/avatarGradient';
+import Avatar from './Avatar';
 
 interface GroupInfoPanelProps {
   conversationId: string;
   conversation: Conversation | undefined;
   onClose: () => void;
-}
-
-const EMOJI_RE = /\p{Extended_Pictographic}/gu;
-
-function getInitials(name: string): string {
-  return name
-    .replace(EMOJI_RE, '')
-    .trim()
-    .split(/\s+/)
-    .map((w) => w[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
 }
 
 export default function GroupInfoPanel({ conversationId, conversation, onClose }: GroupInfoPanelProps) {
@@ -71,11 +57,8 @@ export default function GroupInfoPanel({ conversationId, conversation, onClose }
           {/* Group name & avatar */}
           {display && (
             <div className="flex flex-col items-center mb-6">
-              <div
-                className="w-16 h-16 rounded-2xl flex items-center justify-center text-white text-xl font-semibold mb-3"
-                style={{ background: avatarGradient(display.name) }}
-              >
-                {getInitials(display.name)}
+              <div className="mb-3">
+                <Avatar name={display.name} size={64} rounded="16px" />
               </div>
               <h3 className="text-base font-semibold text-[var(--text)] text-center">{display.name}</h3>
               <p className="text-xs text-[var(--text-3)] mt-1">{participants.length} participants</p>
@@ -88,12 +71,7 @@ export default function GroupInfoPanel({ conversationId, conversation, onClose }
             <div className="space-y-1">
               {me && (
                 <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl">
-                  <div
-                    className="w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center text-white text-[12px] font-semibold"
-                    style={{ background: avatarGradient(me.avatarColor ?? '#3b82f6') }}
-                  >
-                    {getInitials(me.name || 'You')}
-                  </div>
+                  <Avatar name={me.name || 'You'} participantId={me.id} size={36} rounded="12px" gradientKey={me.avatarColor || undefined} />
                   <div className="min-w-0 flex-1">
                     <p className="text-[13px] font-medium text-[var(--text)] truncate">You</p>
                     {me.number && <p className="text-[11px] text-[var(--text-3)]">{me.number}</p>}
@@ -102,12 +80,7 @@ export default function GroupInfoPanel({ conversationId, conversation, onClose }
               )}
               {others.map((p) => (
                 <div key={p.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-[var(--surface-2)] transition-colors">
-                  <div
-                    className="w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center text-white text-[12px] font-semibold"
-                    style={{ background: avatarGradient(p.avatarColor ?? '#3b82f6') }}
-                  >
-                    {getInitials(p.name)}
-                  </div>
+                  <Avatar name={p.name} participantId={p.id} size={36} rounded="12px" gradientKey={p.avatarColor || undefined} />
                   <div className="min-w-0 flex-1">
                     <p className="text-[13px] font-medium text-[var(--text)] truncate">{p.name}</p>
                     {p.number && <p className="text-[11px] text-[var(--text-3)]">{p.number}</p>}
