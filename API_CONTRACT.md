@@ -23,8 +23,35 @@ Starts QR code pairing. Returns QR data for display.
 }
 ```
 
+#### `POST /api/pair/google`
+Starts Google Account (Gaia) pairing. Requires Google auth cookies obtained via Electron sign-in window.
+
+**Request:**
+```json
+{
+  "cookies": {
+    "SID": "...",
+    "HSID": "...",
+    "OSID": "...",
+    "SSID": "...",
+    "APISID": "...",
+    "SAPISID": "..."
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "emoji": "🦊",
+  "emojiUrl": "https://fonts.gstatic.com/s/e/notoemoji/latest/1f98a/emoji.svg"
+}
+```
+
+After responding, the backend waits for the user to confirm the emoji on their phone. On success, broadcasts `pair_success` via WebSocket. On failure, broadcasts `gaia_pair_error`.
+
 #### `POST /api/unpair`
-Disconnects and deletes session. Returns `204 No Content`.
+Disconnects and deletes session. Works for both QR and Google Account sessions. Returns `204 No Content`.
 
 ---
 
@@ -260,7 +287,7 @@ Conversation metadata changed (new message preview, read state, etc.)
 ```
 
 #### `pair_success`
-Fired when QR pairing completes.
+Fired when pairing completes (both QR and Google Account).
 ```json
 {
   "type": "pair_success",
@@ -278,6 +305,19 @@ New QR code generated (old one expired).
   }
 }
 ```
+
+#### `gaia_pair_error`
+Fired when Google Account pairing fails after the emoji was shown.
+```json
+{
+  "type": "gaia_pair_error",
+  "data": {
+    "error": "Wrong emoji selected on phone. Please try again.",
+    "code": "incorrect_emoji"
+  }
+}
+```
+Possible codes: `no_devices`, `phone_not_responding`, `incorrect_emoji`, `cancelled`, `timeout`, `unknown`.
 
 #### `session_expired`
 Session invalidated, must re-pair.

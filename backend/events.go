@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	"go.mau.fi/mautrix-gmessages/pkg/libgm"
 	"go.mau.fi/mautrix-gmessages/pkg/libgm/events"
 	"go.mau.fi/mautrix-gmessages/pkg/libgm/gmproto"
@@ -43,12 +45,18 @@ func (c *GMClient) handleEvent(evt any) {
 
 	case *events.ListenRecovered:
 		c.logger.Info().Msg("Listen connection recovered")
+		c.status.Store(StatusPaired)
+		c.hub.BroadcastPhoneStatus("connected")
 
 	case *events.PingFailed:
 		c.logger.Warn().Err(v.Error).Int("count", v.ErrorCount).Msg("Ping failed")
+		if v.ErrorCount >= 3 {
+			c.hub.BroadcastPhoneStatus("reconnecting")
+		}
 
 	case *events.GaiaLoggedOut:
 		c.logger.Warn().Msg("Gaia logged out")
+		c.StopHealthCheck()
 		c.status.Store(StatusUnpaired)
 		c.hub.BroadcastSessionExpired()
 
@@ -71,6 +79,12 @@ func (c *GMClient) handleClientReady(evt *events.ClientReady) {
 		activeIDs[convID] = true
 		c.cacheConvMeta(conv)
 		cr := ConvertConversation(conv)
+		// Enrich media type from cached messages when last message has no text
+		if cr.LastMessage != nil && cr.LastMessage.Text == "" && cr.LastMessage.MediaType == "" {
+			if mt := c.db.GetLatestMessageMediaType(cr.ID); mt != "" {
+				cr.LastMessage.MediaType = mt
+			}
+		}
 		if err := c.db.SaveConversation(cr); err != nil {
 			c.logger.Warn().Err(err).Str("conv_id", cr.ID).Msg("Failed to cache conversation")
 		}
@@ -90,6 +104,21 @@ func (c *GMClient) handleClientReady(evt *events.ClientReady) {
 	if err := c.saveSession(); err != nil {
 		c.logger.Error().Err(err).Msg("Failed to save session on ready")
 	}
+
+	// Start periodic health check
+	c.StartHealthCheck()
+
+	// After restoring a session, validate it's truly alive by making a
+	// server call. If the session was revoked on Google's side, ClientReady
+	// still fires with stale cached data and no error — the only way to
+	// detect this is to try an active request and see if it works.
+	if c.freshSession.Load() {
+		go func() {
+			time.Sleep(3 * time.Second)
+			c.freshSession.Store(false)
+			c.validateSession()
+		}()
+	}
 }
 
 func (c *GMClient) handleWrappedMessage(msg *libgm.WrappedMessage) {
@@ -106,6 +135,12 @@ func (c *GMClient) handleWrappedMessage(msg *libgm.WrappedMessage) {
 	// Check if this message already exists (reaction/status update vs truly new)
 	existingMsg, _ := c.db.GetMessageByID(mr.ID)
 	isUpdate := existingMsg != nil
+
+	// Enrich with conversation metadata for notifications
+	if conv, err := c.db.GetConversationByID(mr.ConversationID); err == nil && conv != nil {
+		mr.ConversationName = conv.Name
+		mr.IsGroup = conv.IsGroup
+	}
 
 	// Save to DB
 	if err := c.db.SaveMessage(mr); err != nil {
@@ -144,6 +179,13 @@ func (c *GMClient) handleConversationUpdate(conv *gmproto.Conversation) {
 	c.cacheConvMeta(conv)
 	cr := ConvertConversation(conv)
 	c.logger.Info().Str("conv_id", cr.ID).Msg("Conversation updated")
+
+	// Enrich media type from cached messages when last message has no text
+	if cr.LastMessage != nil && cr.LastMessage.Text == "" && cr.LastMessage.MediaType == "" {
+		if mt := c.db.GetLatestMessageMediaType(cr.ID); mt != "" {
+			cr.LastMessage.MediaType = mt
+		}
+	}
 
 	if err := c.db.SaveConversation(cr); err != nil {
 		c.logger.Error().Err(err).Str("conv_id", cr.ID).Msg("Failed to save conversation update")
@@ -194,6 +236,7 @@ func (c *GMClient) handlePhoneRespondingAgain() {
 
 func (c *GMClient) handleListenFatalError(evt *events.ListenFatalError) {
 	c.logger.Error().Err(evt.Error).Msg("Fatal listen error, session expired")
+	c.StopHealthCheck()
 	c.status.Store(StatusUnpaired)
 	c.hub.BroadcastSessionExpired()
 }

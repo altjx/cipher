@@ -741,6 +741,16 @@ export default function MessageThread({ conversationId, conversation, subscribe,
     return map;
   }, [conversation]);
 
+  // Find the last outgoing message with "read" status — only show receipt on that one
+  const lastReadMessageId = useMemo(() => {
+    for (let k = messages.length - 1; k >= 0; k--) {
+      if (messages[k].sender.isMe && messages[k].status === 'read') {
+        return messages[k].id;
+      }
+    }
+    return null;
+  }, [messages]);
+
   // Build messages with date separators, grouping consecutive image-only messages
   const elements: React.ReactNode[] = [];
   let i = 0;
@@ -821,6 +831,7 @@ export default function MessageThread({ conversationId, conversation, subscribe,
           showTimestamp={showTimestamps}
           isGroup={conversation?.isGroup}
           senderColor={senderColorMap.get(msg.sender.id)}
+          isLastRead={msg.id === lastReadMessageId}
         />
       </div>
     );

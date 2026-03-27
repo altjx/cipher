@@ -53,4 +53,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /** Get list of available system sounds */
   getAvailableSounds: (): Promise<string[]> =>
     ipcRenderer.invoke('get-available-sounds'),
+
+  /** Open a URL in the user's default browser */
+  openExternal: (url: string): Promise<void> =>
+    ipcRenderer.invoke('open-external', url),
+
+  /** Open Google sign-in window and return cookies for Gaia pairing */
+  googleSignIn: (): Promise<{ cookies: Record<string, string> | null; cancelled?: boolean }> =>
+    ipcRenderer.invoke('google-sign-in'),
 });

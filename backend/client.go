@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -54,6 +56,17 @@ type GMClient struct {
 	// QR pairing control
 	pairingCancel chan struct{}
 	pairingMu     sync.Mutex
+
+	// Gaia pairing control
+	gaiaCancel context.CancelFunc
+	gaiaMu     sync.Mutex
+
+	// Health check
+	healthStop chan struct{}
+
+	// When true, skip cache-first optimization and fetch from server directly.
+	// Set on startup/reconnect, cleared after first successful server fetch.
+	freshSession atomic.Bool
 }
 
 func NewGMClient(dataDir string, logger zerolog.Logger, hub *WSHub, db *Database) *GMClient {
@@ -136,6 +149,7 @@ func (c *GMClient) Init() error {
 
 	c.logger.Info().Msg("Restoring saved session")
 	c.status.Store(StatusConnecting)
+	c.freshSession.Store(true)
 
 	cli := libgm.NewClient(sess.AuthData, sess.PushKeys, c.logger)
 	cli.SetEventHandler(c.handleEvent)
@@ -155,6 +169,8 @@ func (c *GMClient) Init() error {
 
 // StartPairing begins the QR code pairing flow.
 func (c *GMClient) StartPairing() (string, error) {
+	c.StopHealthCheck()
+
 	c.pairingMu.Lock()
 	// Cancel any existing pairing loop
 	if c.pairingCancel != nil {
@@ -163,6 +179,15 @@ func (c *GMClient) StartPairing() (string, error) {
 	c.pairingCancel = make(chan struct{})
 	cancel := c.pairingCancel
 	c.pairingMu.Unlock()
+
+	// Disconnect any existing client before creating a new one
+	c.mu.Lock()
+	oldCli := c.client
+	c.client = nil
+	c.mu.Unlock()
+	if oldCli != nil {
+		oldCli.Disconnect()
+	}
 
 	c.status.Store(StatusConnecting)
 
@@ -209,8 +234,124 @@ func (c *GMClient) qrRefreshLoop(cli *libgm.Client, cancel chan struct{}) {
 	c.status.Store(StatusUnpaired)
 }
 
+// StartGaiaPairing begins the Google Account pairing flow.
+// It returns an emoji and SVG URL for the user to confirm on their phone.
+// DoGaiaPairing runs in a goroutine; it calls the emoji callback synchronously
+// (which we use to extract the emoji), then blocks waiting for phone confirmation.
+func (c *GMClient) StartGaiaPairing(cookies map[string]string) (string, string, error) {
+	c.StopHealthCheck()
+
+	// Cancel any existing QR pairing
+	c.pairingMu.Lock()
+	if c.pairingCancel != nil {
+		close(c.pairingCancel)
+		c.pairingCancel = nil
+	}
+	c.pairingMu.Unlock()
+
+	// Cancel any existing Gaia pairing
+	c.gaiaMu.Lock()
+	if c.gaiaCancel != nil {
+		c.gaiaCancel()
+	}
+	c.gaiaMu.Unlock()
+
+	// Disconnect existing client
+	c.mu.Lock()
+	oldCli := c.client
+	c.client = nil
+	c.mu.Unlock()
+	if oldCli != nil {
+		oldCli.Disconnect()
+	}
+
+	c.status.Store(StatusConnecting)
+
+	authData := libgm.NewAuthData()
+	authData.Cookies = cookies
+
+	cli := libgm.NewClient(authData, nil, c.logger)
+	cli.SetEventHandler(c.handleEvent)
+
+	c.mu.Lock()
+	c.client = cli
+	c.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+
+	// Store cancel so it can be cancelled externally
+	c.gaiaMu.Lock()
+	c.gaiaCancel = cancel
+	c.gaiaMu.Unlock()
+
+	// Validate cookies by fetching config
+	if err := cli.FetchConfig(ctx); err != nil {
+		cancel()
+		c.status.Store(StatusUnpaired)
+		return "", "", fmt.Errorf("failed to fetch config (cookies may be invalid): %w", err)
+	}
+
+	// Channel to receive the emoji from DoGaiaPairing's callback
+	emojiCh := make(chan string, 1)
+	errCh := make(chan error, 1)
+
+	// DoGaiaPairing runs the full flow: StartGaiaPairing → emojiCallback → FinishGaiaPairing → triggerEvent → Reconnect.
+	// The emojiCallback fires synchronously after the UKEY2 handshake completes,
+	// before FinishGaiaPairing blocks waiting for the phone.
+	go func() {
+		defer cancel()
+		err := cli.DoGaiaPairing(ctx, func(emoji string) {
+			emojiCh <- emoji
+		})
+		if err != nil {
+			c.logger.Error().Err(err).Msg("Gaia pairing failed")
+			code := "unknown"
+			msg := err.Error()
+			switch {
+			case errors.Is(err, libgm.ErrNoDevicesFound):
+				code = "no_devices"
+				msg = "No devices found. Make sure Google Account pairing is enabled in Google Messages on your phone."
+			case errors.Is(err, libgm.ErrPairingInitTimeout):
+				code = "phone_not_responding"
+				msg = "Phone did not respond. Make sure Google Messages is open on your phone."
+			case errors.Is(err, libgm.ErrIncorrectEmoji):
+				code = "incorrect_emoji"
+				msg = "Wrong emoji selected on phone. Please try again."
+			case errors.Is(err, libgm.ErrPairingCancelled):
+				code = "cancelled"
+				msg = "Pairing was cancelled on your phone."
+			case errors.Is(err, libgm.ErrPairingTimeout):
+				code = "timeout"
+				msg = "Pairing timed out. Please try again."
+			}
+			c.status.Store(StatusUnpaired)
+			// If the error happened before the emoji callback, send it on errCh
+			select {
+			case errCh <- err:
+			default:
+			}
+			c.hub.BroadcastGaiaPairError(msg, code)
+			return
+		}
+		c.logger.Info().Msg("Gaia pairing completed successfully")
+	}()
+
+	// Wait for either the emoji (success so far) or an early error
+	select {
+	case emoji := <-emojiCh:
+		emojiURL := libgm.GetEmojiSVG(emoji)
+		return emoji, emojiURL, nil
+	case err := <-errCh:
+		return "", "", err
+	case <-ctx.Done():
+		return "", "", fmt.Errorf("gaia pairing timed out during initialization")
+	}
+}
+
 // Unpair disconnects and deletes the session.
 func (c *GMClient) Unpair() error {
+	c.StopHealthCheck()
+
 	c.mu.Lock()
 	cli := c.client
 	c.client = nil
@@ -239,6 +380,135 @@ func (c *GMClient) Reconnect() error {
 		return fmt.Errorf("no client available")
 	}
 	return cli.Reconnect()
+}
+
+// StartHealthCheck begins a periodic check that verifies the libgm connection
+// is still alive. If the connection is found to be dead, it updates the status
+// and attempts to reconnect.
+func (c *GMClient) StartHealthCheck() {
+	c.StopHealthCheck()
+
+	stop := make(chan struct{})
+	c.mu.Lock()
+	c.healthStop = stop
+	c.mu.Unlock()
+
+	go func() {
+		ticker := time.NewTicker(2 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				c.checkConnection()
+			}
+		}
+	}()
+
+	c.logger.Info().Msg("Health check started (every 2m)")
+}
+
+// StopHealthCheck stops the periodic health check.
+func (c *GMClient) StopHealthCheck() {
+	c.mu.Lock()
+	if c.healthStop != nil {
+		close(c.healthStop)
+		c.healthStop = nil
+	}
+	c.mu.Unlock()
+}
+
+// checkConnection verifies the libgm client is still connected and attempts
+// reconnection if it's not.
+func (c *GMClient) checkConnection() {
+	status := c.Status()
+	if status != StatusPaired && status != StatusPhoneOffline {
+		return
+	}
+
+	cli := c.GetClient()
+	if cli == nil {
+		return
+	}
+
+	if cli.IsConnected() && cli.IsLoggedIn() {
+		return
+	}
+
+	c.logger.Warn().
+		Bool("is_connected", cli.IsConnected()).
+		Bool("is_logged_in", cli.IsLoggedIn()).
+		Msg("Health check: connection lost, attempting reconnect")
+
+	c.status.Store(StatusConnecting)
+	c.freshSession.Store(true)
+	c.hub.BroadcastPhoneStatus("reconnecting")
+
+	if err := cli.Reconnect(); err != nil {
+		c.logger.Error().Err(err).Msg("Health check: reconnect failed")
+		// Don't set unpaired — the libgm event handler will fire
+		// ListenFatalError or GaiaLoggedOut if the session is truly dead.
+		// Keep status as connecting so the frontend knows something is wrong.
+	}
+}
+
+// validateSession checks whether a restored session is truly alive by making
+// active requests to Google. If the session was revoked on Google's side,
+// ClientReady still fires with stale cached data and no error — the only way
+// to detect this is to try an active request.
+func (c *GMClient) validateSession() {
+	cli := c.GetClient()
+	if cli == nil {
+		return
+	}
+
+	c.logger.Info().Msg("Validating restored session...")
+
+	// IsBugleDefault checks whether this client is the active session.
+	// If the session was revoked, this will either fail or return false.
+	bugleResp, err := cli.IsBugleDefault()
+	if err != nil {
+		c.logger.Warn().Err(err).Msg("Session validation: IsBugleDefault failed")
+		c.handleStaleSession()
+		return
+	}
+
+	if !bugleResp.GetSuccess() {
+		c.logger.Warn().Msg("Session validation: not the active Bugle session, session likely expired")
+		c.handleStaleSession()
+		return
+	}
+
+	c.logger.Info().Msg("Session validated — refreshing conversations from server")
+	c.backgroundRefreshConversations(50, "")
+}
+
+// handleStaleSession handles a session that appears connected but is actually
+// expired on Google's side. Clears local state and notifies the frontend.
+func (c *GMClient) handleStaleSession() {
+	c.logger.Warn().Msg("Detected stale/expired session, forcing unpair")
+
+	c.StopHealthCheck()
+
+	c.mu.Lock()
+	cli := c.client
+	c.client = nil
+	c.mu.Unlock()
+
+	if cli != nil {
+		cli.Disconnect()
+	}
+
+	c.status.Store(StatusUnpaired)
+
+	// Remove stale session file
+	if err := os.Remove(c.sessionFile); err != nil && !os.IsNotExist(err) {
+		c.logger.Warn().Err(err).Msg("Failed to remove stale session file")
+	}
+
+	c.hub.BroadcastSessionExpired()
 }
 
 func (c *GMClient) saveSession() error {
@@ -298,6 +568,17 @@ func (c *GMClient) ListConversations(count int, folder string) ([]ConversationRe
 		return c.db.GetConversations(count)
 	}
 
+	// After a fresh connect/reconnect, skip the cache and fetch directly from
+	// the server so the user sees up-to-date data instead of stale cache.
+	if c.freshSession.Load() {
+		c.logger.Info().Msg("Fresh session: fetching conversations from server (skipping cache)")
+		convs, err := c.fetchConversationsFromServer(count, folder)
+		if err == nil {
+			c.freshSession.Store(false)
+		}
+		return convs, err
+	}
+
 	// For inbox requests, serve from cache if available and refresh in background
 	if folder == "" || folder == "inbox" {
 		cached, err := c.db.GetConversations(count)
@@ -337,6 +618,21 @@ func (c *GMClient) fetchConversationsFromServer(count int, folder string) ([]Con
 		c.cacheConvMeta(conv)
 		cr := ConvertConversation(conv)
 		activeIDs[cr.ID] = true
+
+		// Preserve local read state (see backgroundRefreshConversations)
+		if cr.Unread {
+			if existing, err := c.db.GetConversationByID(cr.ID); err == nil && existing != nil && !existing.Unread {
+				cr.Unread = false
+			}
+		}
+
+		// Enrich media type from cached messages when last message has no text
+		if cr.LastMessage != nil && cr.LastMessage.Text == "" && cr.LastMessage.MediaType == "" {
+			if mt := c.db.GetLatestMessageMediaType(cr.ID); mt != "" {
+				cr.LastMessage.MediaType = mt
+			}
+		}
+
 		convs = append(convs, cr)
 		if err := c.db.SaveConversation(cr); err != nil {
 			c.logger.Warn().Err(err).Str("conv_id", cr.ID).Msg("Failed to save conversation")
@@ -377,6 +673,7 @@ func (c *GMClient) backgroundRefreshConversations(count int, folder string) {
 	resp, err := cli.ListConversations(count, f)
 	if err != nil {
 		c.logger.Warn().Err(err).Msg("Background conversation refresh failed")
+		c.checkConnection()
 		return
 	}
 
@@ -385,6 +682,24 @@ func (c *GMClient) backgroundRefreshConversations(count int, folder string) {
 		c.cacheConvMeta(conv)
 		cr := ConvertConversation(conv)
 		activeIDs[cr.ID] = true
+
+		// If the server says unread but the local DB says read, preserve the
+		// local read state. This prevents a race where a background refresh
+		// overwrites a recent mark-as-read (common with SMS where Google
+		// doesn't send a conversation_update after acknowledging the read).
+		if cr.Unread {
+			if existing, err := c.db.GetConversationByID(cr.ID); err == nil && existing != nil && !existing.Unread {
+				cr.Unread = false
+			}
+		}
+
+		// Enrich media type from cached messages when last message has no text
+		if cr.LastMessage != nil && cr.LastMessage.Text == "" && cr.LastMessage.MediaType == "" {
+			if mt := c.db.GetLatestMessageMediaType(cr.ID); mt != "" {
+				cr.LastMessage.MediaType = mt
+			}
+		}
+
 		if err := c.db.SaveConversation(cr); err != nil {
 			c.logger.Warn().Err(err).Str("conv_id", cr.ID).Msg("Failed to save conversation")
 		}
@@ -411,6 +726,11 @@ func (c *GMClient) FetchMessages(conversationID string, count int, cursor string
 	cli := c.GetClient()
 	if cli == nil {
 		return c.db.GetMessages(conversationID, count, cursor)
+	}
+
+	// After a fresh connect/reconnect, always fetch from server
+	if c.freshSession.Load() {
+		return c.fetchMessagesFromServer(conversationID, count, cursor)
 	}
 
 	// For initial loads (no cursor), serve from cache if available and refresh in background
@@ -494,6 +814,7 @@ func (c *GMClient) backgroundRefreshMessages(conversationID string, count int, c
 	resp, err := cli.FetchMessages(conversationID, int64(count), nil)
 	if err != nil {
 		c.logger.Warn().Err(err).Msg("Background message refresh failed")
+		c.checkConnection()
 		return
 	}
 
@@ -1007,6 +1328,25 @@ func (c *GMClient) MarkRead(conversationID, messageID string) error {
 	return cli.MarkRead(conversationID, messageID)
 }
 
+// MarkReadLocal marks a conversation as read in the local DB and broadcasts
+// the update to all WebSocket clients. This ensures the frontend reflects the
+// read state immediately, even when the server (e.g. for SMS) never sends a
+// conversation_update event back.
+func (c *GMClient) MarkReadLocal(conversationID string) {
+	if err := c.db.MarkConversationRead(conversationID); err != nil {
+		c.logger.Warn().Err(err).Str("conv_id", conversationID).Msg("Failed to mark conversation read in DB")
+		return
+	}
+
+	conv, err := c.db.GetConversationByID(conversationID)
+	if err != nil {
+		c.logger.Warn().Err(err).Str("conv_id", conversationID).Msg("Failed to fetch conversation after marking read")
+		return
+	}
+
+	c.hub.BroadcastConversationUpdate(*conv)
+}
+
 // CreateConversation creates or gets an existing conversation with the given phone numbers.
 func (c *GMClient) CreateConversation(numbers []string) (*ConversationResponse, error) {
 	cli := c.GetClient()
@@ -1061,6 +1401,11 @@ func (c *GMClient) GetConversationDetails(conversationID string) (*ConversationR
 
 	c.cacheConvMeta(conv)
 	cr := ConvertConversation(conv)
+	if cr.LastMessage != nil && cr.LastMessage.Text == "" && cr.LastMessage.MediaType == "" {
+		if mt := c.db.GetLatestMessageMediaType(cr.ID); mt != "" {
+			cr.LastMessage.MediaType = mt
+		}
+	}
 	return &cr, nil
 }
 

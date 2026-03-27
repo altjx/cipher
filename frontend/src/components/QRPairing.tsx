@@ -15,8 +15,6 @@ export default function QRPairing({ subscribe, onPaired }: QRPairingProps) {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
 
     startPairing()
       .then((res) => {
@@ -52,39 +50,34 @@ export default function QRPairing({ subscribe, onPaired }: QRPairingProps) {
   }, [subscribe, onPaired]);
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-[var(--bg)]">
-      <div className="bg-[var(--surface-1)] border border-[var(--border)] rounded-2xl p-10 max-w-md w-full mx-4 text-center shadow-[0_4px_24px_rgba(0,0,0,0.2)]">
-        <h1 className="text-2xl font-semibold text-[var(--text)] mb-2">
-          Cipher
-        </h1>
-        <p className="text-[var(--text-2)] mb-8 text-sm">
-          Scan the QR code with your phone to pair
-        </p>
+    <div className="text-center">
+      <p className="text-[var(--text-2)] mb-6 text-sm">
+        Scan the QR code with your phone to pair
+      </p>
 
-        <div className="flex justify-center mb-8">
-          {loading && (
-            <div className="w-[256px] h-[256px] bg-[var(--surface-2)] rounded-lg animate-pulse flex items-center justify-center">
-              <span className="text-[var(--text-3)] text-sm">Loading...</span>
-            </div>
-          )}
-          {error && (
-            <div className="w-[256px] h-[256px] bg-[var(--surface-2)] rounded-lg flex items-center justify-center">
-              <span className="text-red-400 text-sm">{error}</span>
-            </div>
-          )}
-          {!loading && !error && qrUrl && (
-            <div className="bg-white p-4 rounded-lg">
-              <QRCodeSVG value={qrUrl} size={224} />
-            </div>
-          )}
-        </div>
+      <div className="flex justify-center mb-6">
+        {loading && (
+          <div className="w-[256px] h-[256px] bg-[var(--surface-2)] rounded-lg animate-pulse flex items-center justify-center">
+            <span className="text-[var(--text-3)] text-sm">Loading...</span>
+          </div>
+        )}
+        {error && (
+          <div className="w-[256px] h-[256px] bg-[var(--surface-2)] rounded-lg flex items-center justify-center">
+            <span className="text-red-400 text-sm">{error}</span>
+          </div>
+        )}
+        {!loading && !error && qrUrl && (
+          <div className="bg-white p-4 rounded-lg">
+            <QRCodeSVG value={qrUrl} size={224} />
+          </div>
+        )}
+      </div>
 
-        <div className="text-left text-sm text-[var(--text-2)] space-y-2">
-          <p>1. Open Google Messages on your phone</p>
-          <p>2. Tap <span className="text-[var(--text)]">Device pairing</span> in the menu</p>
-          <p>3. Tap <span className="text-[var(--text)]">QR code scanner</span></p>
-          <p>4. Point your phone at this screen to scan the code</p>
-        </div>
+      <div className="text-left text-sm text-[var(--text-2)] space-y-2">
+        <p>1. Open Google Messages on your phone</p>
+        <p>2. Tap <span className="text-[var(--text)]">Device pairing</span> in the menu</p>
+        <p>3. Tap <span className="text-[var(--text)]">QR code scanner</span></p>
+        <p>4. Point your phone at this screen to scan the code</p>
       </div>
     </div>
   );
