@@ -488,6 +488,9 @@ export default function ConversationList({
                           {conv.lastMessage
                             ? conv.lastMessage.text
                               ? truncate(conv.lastMessage.text, 40)
+                              : conv.lastMessage.mediaType === 'audio' ? 'Audio message'
+                              : conv.lastMessage.mediaType === 'video' ? 'Video'
+                              : conv.lastMessage.mediaType === 'image' ? 'Photo'
                               : 'Attachment'
                             : ''}
                         </span>

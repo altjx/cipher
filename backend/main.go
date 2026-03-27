@@ -68,6 +68,7 @@ func main() {
 		sig := <-sigCh
 		logger.Info().Str("signal", sig.String()).Msg("Shutting down")
 
+		gmClient.StopHealthCheck()
 		if cli := gmClient.GetClient(); cli != nil {
 			cli.Disconnect()
 		}

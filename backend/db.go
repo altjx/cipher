@@ -90,12 +90,23 @@ func (d *Database) migrate() error {
 		description TEXT NOT NULL DEFAULT '',
 		image_url TEXT NOT NULL DEFAULT '',
 		site_name TEXT NOT NULL DEFAULT '',
+		favicon_url TEXT NOT NULL DEFAULT '',
 		domain TEXT NOT NULL DEFAULT '',
 		created_at INTEGER NOT NULL DEFAULT 0
 	);
 	`
 	_, err := d.db.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Add favicon_url column to existing link_previews tables (ignore error if already exists)
+	d.db.Exec(`ALTER TABLE link_previews ADD COLUMN favicon_url TEXT NOT NULL DEFAULT ''`)
+
+	// Add last_message_media_type column to existing conversations tables (ignore error if already exists)
+	d.db.Exec(`ALTER TABLE conversations ADD COLUMN last_message_media_type TEXT NOT NULL DEFAULT ''`)
+
+	return nil
 }
 
 func (d *Database) SaveConversation(conv ConversationResponse) error {
@@ -110,15 +121,17 @@ func (d *Database) SaveConversation(conv ConversationResponse) error {
 	lastText := ""
 	lastTimestamp := int64(0)
 	lastSender := ""
+	lastMediaType := ""
 	if conv.LastMessage != nil {
 		lastText = conv.LastMessage.Text
 		lastTimestamp = conv.LastMessage.Timestamp
 		lastSender = conv.LastMessage.Sender
+		lastMediaType = conv.LastMessage.MediaType
 	}
 
 	_, err = d.db.Exec(`
-		INSERT INTO conversations (id, name, is_group, unread, avatar_url, last_message_text, last_message_timestamp, last_message_sender, participants_json, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO conversations (id, name, is_group, unread, avatar_url, last_message_text, last_message_timestamp, last_message_sender, last_message_media_type, participants_json, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name=excluded.name,
 			is_group=excluded.is_group,
@@ -127,10 +140,11 @@ func (d *Database) SaveConversation(conv ConversationResponse) error {
 			last_message_text=excluded.last_message_text,
 			last_message_timestamp=excluded.last_message_timestamp,
 			last_message_sender=excluded.last_message_sender,
+			last_message_media_type=excluded.last_message_media_type,
 			participants_json=excluded.participants_json,
 			updated_at=excluded.updated_at
 	`, conv.ID, conv.Name, conv.IsGroup, conv.Unread, conv.AvatarURL,
-		lastText, lastTimestamp, lastSender,
+		lastText, lastTimestamp, lastSender, lastMediaType,
 		string(participantsJSON), lastTimestamp)
 	return err
 }
@@ -144,7 +158,7 @@ func (d *Database) GetConversations(limit int) ([]ConversationResponse, error) {
 	}
 
 	rows, err := d.db.Query(`
-		SELECT id, name, is_group, unread, avatar_url, last_message_text, last_message_timestamp, last_message_sender, participants_json
+		SELECT id, name, is_group, unread, avatar_url, last_message_text, last_message_timestamp, last_message_sender, last_message_media_type, participants_json
 		FROM conversations
 		ORDER BY last_message_timestamp DESC
 		LIMIT ?
@@ -159,12 +173,12 @@ func (d *Database) GetConversations(limit int) ([]ConversationResponse, error) {
 		var c ConversationResponse
 		var isGroup int
 		var unread int
-		var lastText, lastSender string
+		var lastText, lastSender, lastMediaType string
 		var lastTimestamp int64
 		var participantsJSON string
 
 		if err := rows.Scan(&c.ID, &c.Name, &isGroup, &unread, &c.AvatarURL,
-			&lastText, &lastTimestamp, &lastSender, &participantsJSON); err != nil {
+			&lastText, &lastTimestamp, &lastSender, &lastMediaType, &participantsJSON); err != nil {
 			return nil, err
 		}
 
@@ -176,6 +190,7 @@ func (d *Database) GetConversations(limit int) ([]ConversationResponse, error) {
 				Text:      lastText,
 				Timestamp: lastTimestamp,
 				Sender:    lastSender,
+				MediaType: lastMediaType,
 			}
 		}
 
@@ -199,14 +214,14 @@ func (d *Database) GetConversationByID(id string) (*ConversationResponse, error)
 
 	var c ConversationResponse
 	var isGroup, unread int
-	var lastText, lastSender, participantsJSON string
+	var lastText, lastSender, lastMediaType, participantsJSON string
 	var lastTimestamp int64
 
 	err := d.db.QueryRow(`
-		SELECT id, name, is_group, unread, avatar_url, last_message_text, last_message_timestamp, last_message_sender, participants_json
+		SELECT id, name, is_group, unread, avatar_url, last_message_text, last_message_timestamp, last_message_sender, last_message_media_type, participants_json
 		FROM conversations WHERE id = ?
 	`, id).Scan(&c.ID, &c.Name, &isGroup, &unread, &c.AvatarURL,
-		&lastText, &lastTimestamp, &lastSender, &participantsJSON)
+		&lastText, &lastTimestamp, &lastSender, &lastMediaType, &participantsJSON)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -217,7 +232,7 @@ func (d *Database) GetConversationByID(id string) (*ConversationResponse, error)
 	c.IsGroup = isGroup != 0
 	c.Unread = unread != 0
 	if lastText != "" || lastTimestamp != 0 {
-		c.LastMessage = &LastMessageResponse{Text: lastText, Timestamp: lastTimestamp, Sender: lastSender}
+		c.LastMessage = &LastMessageResponse{Text: lastText, Timestamp: lastTimestamp, Sender: lastSender, MediaType: lastMediaType}
 	}
 	if err := json.Unmarshal([]byte(participantsJSON), &c.Participants); err != nil {
 		c.Participants = []ParticipantResponse{}
@@ -269,6 +284,33 @@ func (d *Database) SaveMessage(msg MessageResponse) error {
 		msg.Text, msg.Timestamp, msg.Status,
 		string(reactionsJSON), string(mediaJSON), replyJSON)
 	return err
+}
+
+// GetLatestMessageMediaType returns the media type category (e.g. "audio", "image", "video")
+// of the latest message in a conversation, by inspecting its cached media_json.
+func (d *Database) GetLatestMessageMediaType(conversationID string) string {
+	var mediaJSON string
+	err := d.db.QueryRow(`
+		SELECT media_json FROM messages
+		WHERE conversation_id = ?
+		ORDER BY timestamp DESC LIMIT 1
+	`, conversationID).Scan(&mediaJSON)
+	if err != nil || mediaJSON == "" || mediaJSON == "[]" {
+		return ""
+	}
+	var media []MediaResponse
+	if err := json.Unmarshal([]byte(mediaJSON), &media); err != nil {
+		return ""
+	}
+	for _, m := range media {
+		if m.IsThumbnail {
+			continue
+		}
+		if mt := MediaTypeFromMime(m.MimeType); mt != "" {
+			return mt
+		}
+	}
+	return ""
 }
 
 func (d *Database) GetMessages(conversationID string, limit int, cursor string) ([]MessageResponse, string, error) {
@@ -507,13 +549,13 @@ func (d *Database) SaveLinkPreview(p *LinkPreviewResponse) error {
 	defer d.mu.Unlock()
 
 	_, err := d.db.Exec(`
-		INSERT INTO link_previews (url, title, description, image_url, site_name, domain, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO link_previews (url, title, description, image_url, site_name, favicon_url, domain, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(url) DO UPDATE SET
 			title=excluded.title, description=excluded.description,
 			image_url=excluded.image_url, site_name=excluded.site_name,
-			domain=excluded.domain, created_at=excluded.created_at
-	`, p.URL, p.Title, p.Description, p.ImageURL, p.SiteName, p.Domain, time.Now().Unix())
+			favicon_url=excluded.favicon_url, domain=excluded.domain, created_at=excluded.created_at
+	`, p.URL, p.Title, p.Description, p.ImageURL, p.SiteName, p.FaviconURL, p.Domain, time.Now().Unix())
 	return err
 }
 
@@ -524,9 +566,9 @@ func (d *Database) GetLinkPreview(url string) (*LinkPreviewResponse, error) {
 	var p LinkPreviewResponse
 	var createdAt int64
 	err := d.db.QueryRow(`
-		SELECT url, title, description, image_url, site_name, domain, created_at
+		SELECT url, title, description, image_url, site_name, favicon_url, domain, created_at
 		FROM link_previews WHERE url = ?
-	`, url).Scan(&p.URL, &p.Title, &p.Description, &p.ImageURL, &p.SiteName, &p.Domain, &createdAt)
+	`, url).Scan(&p.URL, &p.Title, &p.Description, &p.ImageURL, &p.SiteName, &p.FaviconURL, &p.Domain, &createdAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil

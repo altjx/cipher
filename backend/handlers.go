@@ -43,6 +43,41 @@ func (h *Handlers) StartPairing(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, PairResponse{QRUrl: qrURL})
 }
 
+// StartGaiaPairing initiates Google Account pairing.
+// POST /api/pair/google
+func (h *Handlers) StartGaiaPairing(w http.ResponseWriter, r *http.Request) {
+	var req GaiaPairRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if len(req.Cookies) == 0 {
+		writeError(w, http.StatusBadRequest, "cookies are required")
+		return
+	}
+
+	emoji, emojiURL, err := h.client.StartGaiaPairing(req.Cookies)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to start Google pairing: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, GaiaPairResponse{Emoji: emoji, EmojiURL: emojiURL})
+}
+
+// Reconnect forces a full reconnect of the libgm client.
+// POST /api/reconnect
+func (h *Handlers) Reconnect(w http.ResponseWriter, r *http.Request) {
+	if err := h.client.Reconnect(); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to reconnect: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, StatusResponse{
+		Status:     string(h.client.Status()),
+		PhoneModel: h.client.PhoneModel(),
+	})
+}
+
 // Unpair disconnects and deletes the session.
 // POST /api/unpair
 func (h *Handlers) Unpair(w http.ResponseWriter, r *http.Request) {
@@ -370,8 +405,8 @@ func (h *Handlers) MarkRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Always clear unread locally
-	_ = h.db.MarkConversationRead(req.ConversationID)
+	// Always clear unread locally and broadcast to all WS clients
+	h.client.MarkReadLocal(req.ConversationID)
 
 	// Only send read receipt to the remote side if requested (default: true)
 	sendReceipt := req.SendReceipt == nil || *req.SendReceipt

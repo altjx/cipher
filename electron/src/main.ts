@@ -26,6 +26,44 @@ const STATUS_POLL_TIMEOUT_MS = 15_000;
 
 const isDev = !app.isPackaged;
 
+// ─── Build info ─────────────────────────────────────────────────────────────
+
+interface BuildInfo {
+  version: string;
+  buildNumber: string;
+  buildDate: string;
+}
+
+function loadBuildInfo(): BuildInfo {
+  const pkg = JSON.parse(
+    fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'),
+  );
+  const defaultInfo: BuildInfo = {
+    version: pkg.version ?? '0.0.0',
+    buildNumber: 'dev',
+    buildDate: new Date().toISOString(),
+  };
+
+  try {
+    const buildInfoPath = isDev
+      ? path.join(__dirname, '..', 'build-info.json')
+      : path.join(process.resourcesPath, 'build-info.json');
+    if (fs.existsSync(buildInfoPath)) {
+      const raw = JSON.parse(fs.readFileSync(buildInfoPath, 'utf-8'));
+      return {
+        version: raw.version ?? defaultInfo.version,
+        buildNumber: raw.buildNumber ?? defaultInfo.buildNumber,
+        buildDate: raw.buildDate ?? defaultInfo.buildDate,
+      };
+    }
+  } catch (err) {
+    console.error('[electron] Failed to load build-info.json:', err);
+  }
+  return defaultInfo;
+}
+
+const buildInfo = loadBuildInfo();
+
 // Set app name and dock icon for dev mode
 app.setName('Cipher');
 if (isDev && process.platform === 'darwin') {
@@ -309,6 +347,8 @@ function handleNewMessage(data: Record<string, unknown>): void {
   const sender = data.sender as { name?: string; isMe?: boolean } | undefined;
   const text = data.text as string | undefined;
   const conversationId = data.conversationId as string | undefined;
+  const conversationName = data.conversationName as string | undefined;
+  const isGroup = data.isGroup as boolean | undefined;
 
   // Don't notify for our own messages
   if (sender?.isMe) return;
@@ -320,10 +360,17 @@ function handleNewMessage(data: Record<string, unknown>): void {
     updateDockBadge();
   }
 
-  // Show native notification
-  if (Notification.isSupported()) {
+  // Format notification title: "Sender in Group Name" for group chats
+  // Use conversationName as fallback for unknown contacts (empty name) in 1:1 chats
+  let title = sender?.name || conversationName || 'New Message';
+  if (isGroup && conversationName) {
+    title = `${sender?.name || 'Someone'} in ${conversationName}`;
+  }
+
+  // Show native notification only when the window is not focused
+  if (Notification.isSupported() && !windowIsFocused) {
     const notification = new Notification({
-      title: sender?.name ?? 'New Message',
+      title,
       body: text ?? '',
       silent: true,
     });
@@ -543,6 +590,116 @@ function setupIpcHandlers(): void {
     }
   });
 
+  ipcMain.handle('open-external', (_event, url: string) => {
+    shell.openExternal(url);
+  });
+
+  ipcMain.handle('google-sign-in', () => {
+    return new Promise<{ cookies: Record<string, string> | null; cancelled?: boolean }>((resolve) => {
+      const googleLoginURL =
+        'https://accounts.google.com/AccountChooser?continue=https://messages.google.com/web/config';
+      const requiredCookies = ['SID', 'HSID', 'SSID', 'APISID', 'SAPISID'];
+      // OSID is set on messages.google.com and may arrive later than the others
+      const messagesRequiredCookies = ['OSID'];
+      // Additional cookies to capture if available
+      const optionalCookies = ['__Secure-1PSIDTS', '__Secure-1PSID', '__Secure-3PSID', '__Secure-3PSIDTS'];
+
+      const authWindow = new BrowserWindow({
+        width: 500,
+        height: 700,
+        parent: mainWindow ?? undefined,
+        modal: true,
+        show: false,
+        title: 'Sign in with Google',
+        webPreferences: {
+          partition: 'persist:google-auth',
+          nodeIntegration: false,
+          contextIsolation: true,
+        },
+      });
+
+      authWindow.once('ready-to-show', () => authWindow.show());
+      authWindow.loadURL(googleLoginURL);
+
+      let resolved = false;
+      let checkAttempts = 0;
+      const maxCheckAttempts = 10;
+
+      const checkCookies = async () => {
+        if (resolved) return;
+        checkAttempts++;
+        const session = authWindow.webContents.session;
+
+        // Get cookies from both google.com and messages.google.com domains
+        const [googleCookies, messagesCookies] = await Promise.all([
+          session.cookies.get({ domain: '.google.com' }),
+          session.cookies.get({ domain: 'messages.google.com' }),
+        ]);
+        const allCookies = [...googleCookies, ...messagesCookies];
+
+        const wantedNames = new Set([
+          ...requiredCookies,
+          ...messagesRequiredCookies,
+          ...optionalCookies,
+        ]);
+        const cookieMap: Record<string, string> = {};
+        for (const cookie of allCookies) {
+          if (wantedNames.has(cookie.name)) {
+            cookieMap[cookie.name] = cookie.value;
+          }
+        }
+
+        const hasRequired = requiredCookies.every((name) => name in cookieMap);
+        const hasMessagesCookies = messagesRequiredCookies.every((name) => name in cookieMap);
+
+        if (hasRequired && hasMessagesCookies) {
+          resolved = true;
+          authWindow.close();
+          console.log('[electron] Google sign-in: captured cookies:', Object.keys(cookieMap).join(', '));
+          resolve({ cookies: cookieMap });
+        } else if (hasRequired && checkAttempts < maxCheckAttempts) {
+          // Have google.com cookies but still waiting for messages.google.com cookies — retry
+          console.log(`[electron] Google sign-in: waiting for messages cookies (attempt ${checkAttempts}/${maxCheckAttempts})`);
+          setTimeout(checkCookies, 1000);
+        } else if (checkAttempts >= maxCheckAttempts && hasRequired) {
+          // Give up waiting for OSID but proceed with what we have
+          resolved = true;
+          authWindow.close();
+          console.log('[electron] Google sign-in: proceeding without OSID, cookies:', Object.keys(cookieMap).join(', '));
+          resolve({ cookies: cookieMap });
+        }
+        // If we don't even have the google.com cookies yet, the next navigation event will re-trigger
+      };
+
+      authWindow.webContents.on('did-navigate', (_event, url) => {
+        if (url.includes('messages.google.com')) {
+          checkAttempts = 0; // Reset attempts on fresh navigation
+          setTimeout(checkCookies, 1500);
+        }
+      });
+
+      authWindow.webContents.on('did-navigate-in-page', (_event, url) => {
+        if (url.includes('messages.google.com')) {
+          setTimeout(checkCookies, 1500);
+        }
+      });
+
+      // Also check when page finishes loading (catches redirects that don't trigger did-navigate)
+      authWindow.webContents.on('did-finish-load', () => {
+        const url = authWindow.webContents.getURL();
+        if (url.includes('messages.google.com') && !resolved) {
+          setTimeout(checkCookies, 1500);
+        }
+      });
+
+      authWindow.on('closed', () => {
+        if (!resolved) {
+          resolve({ cookies: null, cancelled: true });
+        }
+      });
+    });
+  });
+
   ipcMain.handle('open-image-in-preview', async (_event, imageUrl: string) => {
     try {
       // Fetch the image from the backend
@@ -581,6 +738,14 @@ function setupIpcHandlers(): void {
 // ─── App lifecycle ───────────────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
+  // Configure "About Cipher" panel with version and build info
+  app.setAboutPanelOptions({
+    applicationName: 'Cipher',
+    applicationVersion: `v${buildInfo.version}`,
+    version: `Build ${buildInfo.buildNumber} (${buildInfo.buildDate})`,
+    copyright: 'Desktop client for Google Messages',
+  });
+
   buildMenu();
   setupIpcHandlers();
 

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { Conversation, WsPhoneStatus, WsConversationDeleted } from './api/client';
 import { getStatus, fetchConversations, deleteConversation } from './api/client';
 import { useWebSocket } from './hooks/useWebSocket';
-import QRPairing from './components/QRPairing';
+import PairingScreen from './components/PairingScreen';
 import ConversationList from './components/ConversationList';
 import MessageThread from './components/MessageThread';
 import DetailPanel from './components/DetailPanel';
@@ -38,22 +38,36 @@ export default function App() {
   const deletedIdsRef = useRef<Set<string>>(new Set());
   const { subscribe, connectionState } = useWebSocket();
 
-  // Check status on mount
+  // Check status on mount, polling while the backend is still connecting
   useEffect(() => {
-    getStatus()
-      .then((res) => {
-        if (res.status === 'paired' || res.status === 'phone_offline') {
-          setView('main');
-          if (res.status === 'phone_offline') {
-            setPhoneStatus('offline');
+    let cancelled = false;
+    const startTime = Date.now();
+    const CONNECTING_TIMEOUT_MS = 30_000;
+
+    const checkStatus = () => {
+      getStatus()
+        .then((res) => {
+          if (cancelled) return;
+          if (res.status === 'paired' || res.status === 'phone_offline') {
+            setView('main');
+            if (res.status === 'phone_offline') {
+              setPhoneStatus('offline');
+            }
+          } else if (res.status === 'connecting' && Date.now() - startTime < CONNECTING_TIMEOUT_MS) {
+            // Session is being restored — wait and re-check instead of
+            // showing the pairing screen (which would destroy the session).
+            setTimeout(checkStatus, 1000);
+          } else {
+            setView('pairing');
           }
-        } else {
-          setView('pairing');
-        }
-      })
-      .catch(() => {
-        setView('pairing');
-      });
+        })
+        .catch(() => {
+          if (!cancelled) setView('pairing');
+        });
+    };
+
+    checkStatus();
+    return () => { cancelled = true; };
   }, []);
 
   // Load conversations when entering main view
@@ -355,7 +369,7 @@ export default function App() {
   }
 
   if (view === 'pairing') {
-    return <QRPairing subscribe={subscribe} onPaired={handlePaired} />;
+    return <PairingScreen subscribe={subscribe} onPaired={handlePaired} />;
   }
 
   return (

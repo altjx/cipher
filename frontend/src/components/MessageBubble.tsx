@@ -1,5 +1,5 @@
-import { useState, useRef, useLayoutEffect } from 'react';
-import { MessageSquareReply, SmilePlus, Check, CheckCheck, Trash2, RotateCcw } from 'lucide-react';
+import { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { MessageSquareReply, SmilePlus, Check, CheckCheck, Trash2, RotateCcw, Copy, ExternalLink } from 'lucide-react';
 import type { Message } from '../api/client';
 import MediaPlayer from './MediaPlayer';
 import EmojiPicker from './EmojiPicker';
@@ -22,6 +22,7 @@ interface MessageBubbleProps {
   showTimestamp?: boolean;
   isGroup?: boolean;
   senderColor?: string;
+  isLastRead?: boolean;
 }
 
 function formatTime(ts: number): string {
@@ -82,11 +83,21 @@ function StatusIcon({ status }: { status: Message['status'] }) {
   }
 }
 
-export default function MessageBubble({ message, isMe, showSender, onReply, onReact, onRemoveReaction, myParticipantId, onDelete, onResend, onImageClick, onImageLoad, conversationName, showTimestamp, isGroup, senderColor: sColor }: MessageBubbleProps) {
+export default function MessageBubble({ message, isMe, showSender, onReply, onReact, onRemoveReaction, myParticipantId, onDelete, onResend, onImageClick, onImageLoad, conversationName, showTimestamp, isGroup, senderColor: sColor, isLastRead }: MessageBubbleProps) {
   const [hovered, setHovered] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
+  const [linkMenu, setLinkMenu] = useState<{ x: number; y: number; url: string } | null>(null);
+  const [copyToast, setCopyToast] = useState<{ x: number; y: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const savedScrollRef = useRef<{ el: HTMLElement; top: number } | null>(null);
+
+  // Close link context menu on click outside
+  useEffect(() => {
+    if (!linkMenu) return;
+    const handleClick = () => setLinkMenu(null);
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
+  }, [linkMenu]);
 
   // Restore scroll position after the emoji picker renders and steals focus
   useLayoutEffect(() => {
@@ -208,6 +219,15 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
           style={showGroupStyle ? { borderLeftColor: sColor } : undefined}
           onContextMenu={(e) => {
             e.preventDefault();
+            const target = e.target as HTMLElement;
+            const anchor = target.closest('a');
+            if (anchor) {
+              const url = anchor.getAttribute('href');
+              if (url) {
+                setLinkMenu({ x: e.clientX, y: e.clientY, url });
+                return;
+              }
+            }
             setHovered(true);
             openReactionPicker();
           }}
@@ -294,8 +314,8 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
         )}
       </div>
 
-      {/* Read receipt row */}
-      {isMe && message.status === 'read' && conversationName && (
+      {/* Read receipt row — only shown on the last read message */}
+      {isMe && isLastRead && conversationName && (
         <div className="flex gap-1 items-center px-1 mt-0.5">
           <div className="w-3.5 h-3.5 rounded-full bg-[var(--surface-3)] text-[7px] text-[var(--text-2)] flex items-center justify-center font-semibold">
             {getInitials(conversationName).charAt(0)}
@@ -304,6 +324,52 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
         </div>
       )}
 
+      {/* Link context menu */}
+      {linkMenu && (
+        <div
+          className="fixed z-50 bg-[var(--surface-2)] border border-[var(--border)] rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] py-1.5 min-w-[160px]"
+          style={{ left: linkMenu.x, top: linkMenu.y }}
+        >
+          <button
+            onClick={() => {
+              const pos = { x: linkMenu.x, y: linkMenu.y };
+              navigator.clipboard.writeText(linkMenu.url);
+              setLinkMenu(null);
+              setCopyToast(pos);
+              setTimeout(() => setCopyToast(null), 1500);
+            }}
+            className="w-full flex items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-[var(--text)] hover:bg-[rgba(255,255,255,0.05)] transition-colors cursor-pointer"
+          >
+            <Copy className="w-4 h-4" />
+            Copy Link
+          </button>
+          <button
+            onClick={() => {
+              if (window.electronAPI?.openExternal) {
+                window.electronAPI.openExternal(linkMenu.url);
+              } else {
+                window.open(linkMenu.url, '_blank', 'noopener,noreferrer');
+              }
+              setLinkMenu(null);
+            }}
+            className="w-full flex items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-[var(--text)] hover:bg-[rgba(255,255,255,0.05)] transition-colors cursor-pointer"
+          >
+            <ExternalLink className="w-4 h-4" />
+            Open Link
+          </button>
+        </div>
+      )}
+
+      {/* Copy confirmation toast */}
+      {copyToast && (
+        <div
+          className="fixed z-50 bg-[var(--surface-2)] border border-[var(--border)] rounded-lg shadow-[0_4px_16px_rgba(0,0,0,0.3)] px-3 py-1.5 text-[13px] text-[var(--text)] flex items-center gap-2 animate-[fadeInOut_1.5s_ease-in-out]"
+          style={{ left: copyToast.x, top: copyToast.y }}
+        >
+          <Check className="w-3.5 h-3.5 text-green-400" />
+          Copied!
+        </div>
+      )}
     </div>
   );
 }

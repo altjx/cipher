@@ -55,6 +55,8 @@ func (s *Server) setupRoutes() {
 	// Status & Pairing
 	s.router.HandleFunc("/api/status", s.handlers.GetStatus).Methods("GET", "OPTIONS")
 	s.router.HandleFunc("/api/pair", s.handlers.StartPairing).Methods("GET", "OPTIONS")
+	s.router.HandleFunc("/api/pair/google", s.handlers.StartGaiaPairing).Methods("POST", "OPTIONS")
+	s.router.HandleFunc("/api/reconnect", s.handlers.Reconnect).Methods("POST", "OPTIONS")
 	s.router.HandleFunc("/api/unpair", s.handlers.Unpair).Methods("POST", "OPTIONS")
 
 	// Conversations
@@ -93,6 +95,7 @@ func (s *Server) setupRoutes() {
 
 	// Link Previews
 	s.router.HandleFunc("/api/link-preview", s.handlers.GetLinkPreview).Methods("GET", "OPTIONS")
+	s.router.HandleFunc("/api/link-preview/image", s.handlers.ProxyImage).Methods("GET", "OPTIONS")
 
 	// Avatars
 	s.router.HandleFunc("/api/avatars/{id}", s.handlers.GetParticipantThumbnail).Methods("GET", "OPTIONS")

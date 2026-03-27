@@ -16,7 +16,10 @@
       "icon": "assets/icon.icns",
       "target": [
         "dmg"
-      ]
+      ],
+      "extendInfo": {
+        "NSUserNotificationAlertStyle": "banner"
+      }
     },
     "files": [
       "dist/**/*.js"
@@ -29,6 +32,10 @@
       {
         "from": "../frontend/dist",
         "to": "frontend"
+      },
+      {
+        "from": "build-info.json",
+        "to": "build-info.json"
       }
     ]
   },

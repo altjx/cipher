@@ -8,6 +8,8 @@ import (
 )
 
 var systemChatWithPattern = regexp.MustCompile(`^(rcs chat with|texting with|chatting with|you're now chatting with) .+?(\s*\((sms|sms/mms|rcs|chat)\))?$`)
+var reactionTextPattern = regexp.MustCompile(`^reacted .+ to (a |an )?`)
+var removedReactionTextPattern = regexp.MustCompile(`^removed a reaction from (a |an )?`)
 
 // API response types matching the API contract
 
@@ -38,6 +40,7 @@ type LastMessageResponse struct {
 	Text      string `json:"text"`
 	Timestamp int64  `json:"timestamp"`
 	Sender    string `json:"sender"`
+	MediaType string `json:"mediaType,omitempty"`
 }
 
 type ParticipantResponse struct {
@@ -62,8 +65,10 @@ type MessageResponse struct {
 	Status          string              `json:"status"`
 	Reactions       []ReactionResponse  `json:"reactions"`
 	Media           []MediaResponse     `json:"media"`
-	ReplyTo         *ReplyToResponse    `json:"replyTo,omitempty"`
-	IsSystemMessage bool                `json:"isSystemMessage"`
+	ReplyTo          *ReplyToResponse    `json:"replyTo,omitempty"`
+	IsSystemMessage  bool                `json:"isSystemMessage"`
+	ConversationName string              `json:"conversationName,omitempty"`
+	IsGroup          bool                `json:"isGroup,omitempty"`
 }
 
 type SenderResponse struct {
@@ -175,6 +180,20 @@ type ConversationDeletedData struct {
 
 type QRRefreshData struct {
 	QRUrl string `json:"qrUrl"`
+}
+
+type GaiaPairRequest struct {
+	Cookies map[string]string `json:"cookies"`
+}
+
+type GaiaPairResponse struct {
+	Emoji    string `json:"emoji"`
+	EmojiURL string `json:"emojiUrl"`
+}
+
+type GaiaPairErrorData struct {
+	Error string `json:"error"`
+	Code  string `json:"code"`
 }
 
 type MessagesRefreshedData struct {
@@ -375,6 +394,11 @@ func IsSystemMessageText(text string) bool {
 		return true
 	}
 
+	// Reaction notification messages like "Reacted 🤣 to an audio message"
+	if reactionTextPattern.MatchString(lower) || removedReactionTextPattern.MatchString(lower) {
+		return true
+	}
+
 	return false
 }
 
@@ -418,4 +442,18 @@ func MapMessageStatus(status gmproto.MessageStatusType) string {
 	default:
 		return "sent"
 	}
+}
+
+// MediaTypeFromMime classifies a MIME type into a human-friendly media category.
+func MediaTypeFromMime(mimeType string) string {
+	if strings.HasPrefix(mimeType, "audio/") {
+		return "audio"
+	}
+	if strings.HasPrefix(mimeType, "video/") {
+		return "video"
+	}
+	if strings.HasPrefix(mimeType, "image/") {
+		return "image"
+	}
+	return ""
 }
