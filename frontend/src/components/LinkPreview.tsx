@@ -2,6 +2,11 @@ import { useState, useEffect } from 'react';
 import { fetchLinkPreview, type LinkPreview as LinkPreviewData } from '../api/client';
 import { ExternalLink } from 'lucide-react';
 
+function proxyImageUrl(url: string): string {
+  if (!url) return '';
+  return `/api/link-preview/image?url=${encodeURIComponent(url)}`;
+}
+
 const URL_RE = /https?:\/\/[^\s<]+/;
 
 // In-memory cache so re-renders don't re-fetch
@@ -68,7 +73,7 @@ export default function LinkPreview({ text, isMe }: LinkPreviewProps) {
       {preview.imageUrl && (
         <div className={`w-full h-32 overflow-hidden ${isMe ? 'bg-white/10' : 'bg-[var(--surface-3)]'}`}>
           <img
-            src={preview.imageUrl}
+            src={proxyImageUrl(preview.imageUrl)}
             alt=""
             className="w-full h-full object-cover"
             onError={(e) => {
@@ -89,7 +94,19 @@ export default function LinkPreview({ text, isMe }: LinkPreviewProps) {
           </p>
         )}
         <div className={`flex items-center gap-1 mt-1 ${isMe ? 'text-white/50' : 'text-[var(--text-3)]'}`}>
-          <ExternalLink className="w-3 h-3" />
+          {preview.faviconUrl ? (
+            <img
+              src={proxyImageUrl(preview.faviconUrl)}
+              alt=""
+              className="w-3 h-3 rounded-sm"
+              onError={(e) => {
+                // Fall back to generic icon if favicon fails
+                (e.target as HTMLImageElement).style.display = 'none';
+                (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
+              }}
+            />
+          ) : null}
+          <ExternalLink className={`w-3 h-3 ${preview.faviconUrl ? 'hidden' : ''}`} />
           <span className="text-[10px]">{preview.siteName || preview.domain}</span>
         </div>
       </div>

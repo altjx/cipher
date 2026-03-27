@@ -193,3 +193,10 @@ func (h *WSHub) BroadcastQRRefresh(qrURL string) {
 func (h *WSHub) BroadcastSessionExpired() {
 	h.Broadcast(WSEvent{Type: "session_expired", Data: struct{}{}})
 }
+
+func (h *WSHub) BroadcastGaiaPairError(errorMsg, code string) {
+	h.Broadcast(WSEvent{Type: "gaia_pair_error", Data: GaiaPairErrorData{
+		Error: errorMsg,
+		Code:  code,
+	}})
+}

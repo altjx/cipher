@@ -167,6 +167,7 @@ export default function CommandPalette({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const keyboardNavRef = useRef(false);
 
   const { themeId, setTheme } = useTheme();
   const originalThemeRef = useRef(themeId);
@@ -304,6 +305,10 @@ export default function CommandPalette({
     const items = list.querySelectorAll('[data-palette-item]');
     const item = items[selectedIndex] as HTMLElement | undefined;
     item?.scrollIntoView({ block: 'nearest' });
+    // Clear keyboard nav flag after scroll settles, so onMouseEnter works again for real mouse movement
+    if (keyboardNavRef.current) {
+      requestAnimationFrame(() => { keyboardNavRef.current = false; });
+    }
   }, [selectedIndex]);
 
   const executeCommand = useCallback(
@@ -374,12 +379,14 @@ export default function CommandPalette({
 
     if (e.key === 'ArrowDown') {
       e.preventDefault();
+      keyboardNavRef.current = true;
       setSelectedIndex((i) => (i + 1 < itemCount ? i + 1 : 0));
       return;
     }
 
     if (e.key === 'ArrowUp') {
       e.preventDefault();
+      keyboardNavRef.current = true;
       setSelectedIndex((i) => (i - 1 >= 0 ? i - 1 : Math.max(0, itemCount - 1)));
       return;
     }
@@ -422,7 +429,7 @@ export default function CommandPalette({
               key={cmd.id}
               data-palette-item
               onClick={() => executeCommand(cmd)}
-              onMouseEnter={() => setSelectedIndex(idx)}
+              onMouseEnter={() => { if (!keyboardNavRef.current) setSelectedIndex(idx); }}
               className={`w-full flex items-center gap-3 px-4 py-2.5 transition-colors cursor-pointer ${
                 isSelected ? 'bg-[var(--accent-soft)]' : 'hover:bg-[rgba(255,255,255,0.03)]'
               }`}
@@ -450,7 +457,7 @@ export default function CommandPalette({
         key={conv.id}
         data-palette-item
         onClick={() => selectConversation(conv.id)}
-        onMouseEnter={() => setSelectedIndex(idx)}
+        onMouseEnter={() => { if (!keyboardNavRef.current) setSelectedIndex(idx); }}
         className={`w-full flex items-center gap-3 px-4 py-2.5 transition-colors cursor-pointer ${
           idx === selectedIndex ? 'bg-[var(--accent-soft)]' : 'hover:bg-[rgba(255,255,255,0.03)]'
         }`}
@@ -489,6 +496,7 @@ export default function CommandPalette({
           data-palette-item
           onClick={() => selectTheme(theme.id)}
           onMouseEnter={() => {
+            if (keyboardNavRef.current) return;
             setSelectedIndex(idx);
             applyTheme(theme.id);
           }}
@@ -583,7 +591,6 @@ export default function CommandPalette({
               placeholder={placeholder}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={handleKeyDown}
               className="flex-1 bg-transparent text-[var(--text)] text-base focus:outline-none placeholder-[var(--text-3)]"
             />
           )}

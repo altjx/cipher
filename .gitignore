@@ -6,6 +6,7 @@ frontend/dist/
 electron/dist/
 electron/dist-electron/
 backend/backend
+electron/build-info.json
 
 # Data / session
 backend/data/
@@ -21,6 +22,9 @@ backend/data/
 mockups/
 scripts/
 docs/RELEASE_PROCESS.md
+
+# Claude Code local settings
+.claude/settings.local.json
 
 # Env
 .env

@@ -9,6 +9,11 @@ export interface PairResponse {
   qrUrl: string;
 }
 
+export interface GaiaPairResponse {
+  emoji: string;
+  emojiUrl: string;
+}
+
 export interface Participant {
   id: string;
   name: string;
@@ -21,6 +26,7 @@ export interface LastMessage {
   text: string;
   timestamp: number;
   sender: string;
+  mediaType?: string;
 }
 
 export interface Conversation {
@@ -192,6 +198,14 @@ export interface WsSessionExpired {
   data: Record<string, never>;
 }
 
+export interface WsGaiaPairError {
+  type: 'gaia_pair_error';
+  data: {
+    error: string;
+    code: string;
+  };
+}
+
 export type WsEvent =
   | WsNewMessage
   | WsMessagesRefreshed
@@ -203,7 +217,8 @@ export type WsEvent =
   | WsPhoneStatus
   | WsPairSuccess
   | WsQrRefresh
-  | WsSessionExpired;
+  | WsSessionExpired
+  | WsGaiaPairError;
 
 export type WsEventType = WsEvent['type'];
 
@@ -221,6 +236,8 @@ declare global {
       setNotificationSound: (name: string) => Promise<{ notificationSound: string }>;
       previewSound: (name: string) => Promise<{ success: boolean; error?: string }>;
       getAvailableSounds: () => Promise<string[]>;
+      openExternal: (url: string) => Promise<void>;
+      googleSignIn: () => Promise<{ cookies: Record<string, string> | null; cancelled?: boolean }>;
     };
   }
 }
@@ -266,6 +283,14 @@ export function startPairing(): Promise<PairResponse> {
 
 export function unpair(): Promise<void> {
   return request<void>('/api/unpair', { method: 'POST' });
+}
+
+export function startGaiaPairing(cookies: Record<string, string>): Promise<GaiaPairResponse> {
+  return request<GaiaPairResponse>('/api/pair/google', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cookies }),
+  });
 }
 
 export function deleteConversation(convId: string): Promise<void> {
@@ -448,6 +473,7 @@ export interface LinkPreview {
   description: string;
   imageUrl: string;
   siteName: string;
+  faviconUrl: string;
   domain: string;
 }
 

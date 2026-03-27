@@ -47,6 +47,12 @@ npm run typecheck        # tsc --noEmit
 2. `cd frontend && npm run dev`
 3. `cd electron && npm run dev` (optional — or just use browser at localhost:5173)
 
+### Production build
+```bash
+./build.sh    # builds backend, frontend, Electron app, installs to /Applications, and re-signs
+```
+This is the correct way to build for production. It runs all three build steps (backend → frontend → Electron), copies `Cipher.app` to `/Applications/`, and re-signs the binary and app bundle with `codesign`.
+
 Note: There are no tests in the project currently.
 
 ## Commit and Release Workflow
