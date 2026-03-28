@@ -70,6 +70,21 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
+  // Re-check status once the WebSocket connects — catches session_expired
+  // events that were broadcast before the WS was established.
+  const wsCheckedRef = useRef(false);
+  useEffect(() => {
+    if (connectionState !== 'connected' || view !== 'main' || wsCheckedRef.current) return;
+    wsCheckedRef.current = true;
+    getStatus().then((res) => {
+      if (res.status === 'unpaired') {
+        setView('pairing');
+        setConversations([]);
+        setSelectedConversationId(null);
+      }
+    }).catch(() => {});
+  }, [connectionState, view]);
+
   // Load conversations when entering main view
   useEffect(() => {
     if (view !== 'main') return;
@@ -446,7 +461,15 @@ export default function App() {
       )}
 
       {settingsOpen && (
-        <SettingsPanel onClose={() => setSettingsOpen(false)} />
+        <SettingsPanel
+          onClose={() => setSettingsOpen(false)}
+          onDisconnect={() => {
+            setSettingsOpen(false);
+            setView('pairing');
+            setConversations([]);
+            setSelectedConversationId(null);
+          }}
+        />
       )}
 
       {deleteConfirm && (
