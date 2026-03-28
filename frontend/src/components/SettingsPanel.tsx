@@ -1,20 +1,22 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Check, Play, Palette, Bell, Eye } from 'lucide-react';
+import { X, Check, Play, Palette, Bell, Eye, LogOut } from 'lucide-react';
 import { themeOrder, themeMap } from '../config/themes';
 import { useTheme } from '../context/ThemeContext';
-import { getSendReadReceipts, setSendReadReceipts } from '../api/client';
+import { getSendReadReceipts, setSendReadReceipts, unpair } from '../api/client';
 
 interface SettingsPanelProps {
   onClose: () => void;
+  onDisconnect: () => void;
 }
 
 const orderedThemes = themeOrder.map((id) => themeMap.get(id)!).filter(Boolean);
 
-export default function SettingsPanel({ onClose }: SettingsPanelProps) {
+export default function SettingsPanel({ onClose, onDisconnect }: SettingsPanelProps) {
   const { themeId, setTheme } = useTheme();
   const [selectedSound, setSelectedSound] = useState<string>('');
   const [availableSounds, setAvailableSounds] = useState<string[]>([]);
   const [sendReadReceipts, setReadReceipts] = useState(getSendReadReceipts());
+  const [disconnecting, setDisconnecting] = useState(false);
   const isElectron = !!window.electronAPI;
   const [loadingSounds, setLoadingSounds] = useState(isElectron);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -249,6 +251,40 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
                 })}
               </div>
             )}
+          </div>
+
+          {/* Divider */}
+          <div className="mx-6 border-t border-[var(--border)]" />
+
+          {/* Account Section */}
+          <div className="px-6 pt-5 pb-5">
+            <div className="flex items-center gap-2 mb-4">
+              <LogOut className="w-4 h-4 text-[var(--text-3)]" />
+              <h3 className="text-[13px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
+                Account
+              </h3>
+            </div>
+
+            <button
+              onClick={async () => {
+                setDisconnecting(true);
+                try {
+                  await unpair();
+                  onDisconnect();
+                } catch {
+                  setDisconnecting(false);
+                }
+              }}
+              disabled={disconnecting}
+              className="w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl hover:bg-red-500/10 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium text-red-400 text-left">Disconnect</p>
+                <p className="text-[11px] text-[var(--text-3)] text-left mt-0.5">
+                  Sign out and return to the pairing screen
+                </p>
+              </div>
+            </button>
           </div>
         </div>
       </div>
