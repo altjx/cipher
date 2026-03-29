@@ -299,6 +299,10 @@ func ConvertMessage(msg *gmproto.Message) MessageResponse {
 		}
 	}
 
+	// Determine isMe from the message status type — this is reliable even when
+	// participant IDs change across sessions (e.g., "3" vs "97").
+	isOutgoingStatus := isOutgoingMessage(msg.GetMessageStatus().GetStatus())
+
 	// Sender
 	if sp := msg.GetSenderParticipant(); sp != nil {
 		name := sp.GetFullName()
@@ -309,15 +313,18 @@ func ConvertMessage(msg *gmproto.Message) MessageResponse {
 		if id := sp.GetID(); id != nil {
 			spID = id.GetParticipantID()
 		}
+		isMe := sp.GetIsMe() || isOutgoingStatus
 		resp.Sender = &SenderResponse{
 			ID:   spID,
 			Name: name,
-			IsMe: sp.GetIsMe(),
+			IsMe: isMe,
 		}
 	} else {
+		pid := msg.GetParticipantID()
 		resp.Sender = &SenderResponse{
-			ID:   msg.GetParticipantID(),
-			Name: msg.GetParticipantID(),
+			ID:   pid,
+			Name: pid,
+			IsMe: isOutgoingStatus,
 		}
 	}
 
@@ -415,6 +422,31 @@ func isSystemMessage(text string, msg *gmproto.Message) bool {
 	}
 
 	return false
+}
+
+// isOutgoingMessage returns true if the message status indicates the message
+// was sent by the local user. This is the most reliable signal for authorship,
+// as participant IDs can change across sessions.
+func isOutgoingMessage(status gmproto.MessageStatusType) bool {
+	switch status {
+	case gmproto.MessageStatusType_OUTGOING_SENDING,
+		gmproto.MessageStatusType_OUTGOING_YET_TO_SEND,
+		gmproto.MessageStatusType_OUTGOING_DELIVERED,
+		gmproto.MessageStatusType_OUTGOING_COMPLETE,
+		gmproto.MessageStatusType_OUTGOING_DISPLAYED,
+		gmproto.MessageStatusType_OUTGOING_FAILED_GENERIC,
+		gmproto.MessageStatusType_OUTGOING_FAILED_EMERGENCY_NUMBER,
+		gmproto.MessageStatusType_OUTGOING_CANCELED,
+		gmproto.MessageStatusType_OUTGOING_FAILED_TOO_LARGE,
+		gmproto.MessageStatusType_OUTGOING_FAILED_RECIPIENT_LOST_RCS,
+		gmproto.MessageStatusType_OUTGOING_FAILED_NO_RETRY_NO_FALLBACK,
+		gmproto.MessageStatusType_OUTGOING_FAILED_RECIPIENT_DID_NOT_DECRYPT,
+		gmproto.MessageStatusType_OUTGOING_FAILED_RECIPIENT_LOST_ENCRYPTION,
+		gmproto.MessageStatusType_OUTGOING_FAILED_RECIPIENT_DID_NOT_DECRYPT_NO_MORE_RETRY:
+		return true
+	default:
+		return false
+	}
 }
 
 func MapMessageStatus(status gmproto.MessageStatusType) string {
