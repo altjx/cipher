@@ -104,7 +104,6 @@ func (c *GMClient) cacheConvMeta(conv *gmproto.Conversation) {
 	if outgoingID == "" {
 		return
 	}
-
 	c.convMetaMu.Lock()
 	c.convMetas[convID] = &convMeta{
 		outgoingID: outgoingID,
