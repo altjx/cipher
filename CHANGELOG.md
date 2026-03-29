@@ -6,6 +6,25 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-03-29
+
+### Added
+- Added Google Account sign-in as an alternative to QR code pairing, with an emoji confirmation flow.
+- Added automatic connection health checks with reconnect when the link to your phone goes stale.
+- Added a "Copy" / "Open in Browser" context menu for links in conversations.
+- Added a copy button for phone numbers shown in contact details.
+
+### Fixed
+- Fixed outgoing messages sometimes appearing as incoming after re-pairing on a different device.
+- Fixed session errors that could prevent reconnecting after the app was idle.
+- Fixed link previews failing on bot-protected sites like Zillow.
+- Fixed read receipts so only the last-read message shows the indicator.
+
+### Changed
+- Notifications are now suppressed when the app window is already focused.
+- Group chat notifications now show the conversation name instead of a raw ID.
+- Media type labels in the conversation list are now more descriptive.
+
 ## [1.1.0] - 2026-03-17
 
 ### Added
@@ -38,5 +57,6 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 - Added commit hooks and workflow documentation.
 - Improved system message detection and command palette focus handling.
 
-[Unreleased]: https://github.com/altjx/cipher/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/altjx/cipher/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/altjx/cipher/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/altjx/cipher/compare/v1.0.0...v1.1.0
