@@ -639,12 +639,16 @@ func (c *GMClient) fetchConversationsFromServer(count int, folder string) ([]Con
 		}
 	}
 
-	// Remove cached conversations that no longer exist on the server
-	if cachedIDs, err := c.db.GetConversationIDs(); err == nil {
-		for _, id := range cachedIDs {
-			if !activeIDs[id] {
-				c.logger.Info().Str("conv_id", id).Msg("Removing stale conversation from cache")
-				_ = c.db.DeleteConversation(id)
+	// Only prune if the server returned at least one conversation. An empty
+	// response usually means a stale/broken session, not that the user deleted
+	// every conversation. Pruning on empty data would wipe the entire cache.
+	if len(activeIDs) > 0 {
+		if cachedIDs, err := c.db.GetConversationIDs(); err == nil {
+			for _, id := range cachedIDs {
+				if !activeIDs[id] {
+					c.logger.Info().Str("conv_id", id).Msg("Removing stale conversation from cache")
+					_ = c.db.DeleteConversation(id)
+				}
 			}
 		}
 	}
@@ -706,13 +710,16 @@ func (c *GMClient) backgroundRefreshConversations(count int, folder string) {
 		c.hub.BroadcastConversationUpdate(cr)
 	}
 
-	// Remove cached conversations that no longer exist on the server
-	if cachedIDs, err := c.db.GetConversationIDs(); err == nil {
-		for _, id := range cachedIDs {
-			if !activeIDs[id] {
-				c.logger.Info().Str("conv_id", id).Msg("Removing stale conversation from cache")
-				_ = c.db.DeleteConversation(id)
-				c.hub.BroadcastConversationDeleted(id)
+	// Only prune if the server returned at least one conversation (see
+	// fetchConversationsFromServer for rationale).
+	if len(activeIDs) > 0 {
+		if cachedIDs, err := c.db.GetConversationIDs(); err == nil {
+			for _, id := range cachedIDs {
+				if !activeIDs[id] {
+					c.logger.Info().Str("conv_id", id).Msg("Removing stale conversation from cache")
+					_ = c.db.DeleteConversation(id)
+					c.hub.BroadcastConversationDeleted(id)
+				}
 			}
 		}
 	}

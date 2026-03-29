@@ -90,12 +90,18 @@ func (c *GMClient) handleClientReady(evt *events.ClientReady) {
 		}
 	}
 
-	// Remove cached conversations that no longer exist on the server
-	if cachedIDs, err := c.db.GetConversationIDs(); err == nil {
-		for _, id := range cachedIDs {
-			if !activeIDs[id] {
-				c.logger.Info().Str("conv_id", id).Msg("Removing stale conversation from cache")
-				_ = c.db.DeleteConversation(id)
+	// Only prune cached conversations when we trust the data. On a restored
+	// session, ClientReady can fire with stale/empty conversation lists even
+	// though the session is actually dead — pruning at this point would wipe
+	// the entire cache. Defer pruning until validateSession confirms the
+	// session is alive and triggers a fresh server fetch.
+	if !c.freshSession.Load() && len(activeIDs) > 0 {
+		if cachedIDs, err := c.db.GetConversationIDs(); err == nil {
+			for _, id := range cachedIDs {
+				if !activeIDs[id] {
+					c.logger.Info().Str("conv_id", id).Msg("Removing stale conversation from cache")
+					_ = c.db.DeleteConversation(id)
+				}
 			}
 		}
 	}
