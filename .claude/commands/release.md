@@ -7,7 +7,8 @@ Execute the automated release process for Cipher. This command should:
 3. Fall back to conventional commit analysis when PR data is unavailable.
 4. Build user-facing release notes.
 5. Update `electron/package.json`, `electron/package-lock.json`, and `CHANGELOG.md`.
-6. Commit the release, create a git tag, push both, and publish a GitHub Release.
+6. Commit the release and build the app with `./build.sh`.
+7. Create a git tag, push both, and publish a GitHub Release.
 
 ## Instructions for Claude
 
@@ -101,7 +102,13 @@ git add CHANGELOG.md electron/package.json electron/package-lock.json
 git commit -m "chore(release): bump version to vNEW_VERSION"
 ```
 
-### Step 7: Tag and Push
+### Step 7: Build the App
+
+Run `./build.sh` from the repository root. This rebuilds the backend, frontend, and Electron app with the new version number and installs `Cipher.app` to `/Applications/`.
+
+If the build fails, stop and ask the user how to proceed. Do not tag or push a broken release.
+
+### Step 8: Tag and Push
 
 Run:
 
@@ -111,7 +118,7 @@ git push origin main
 git push origin vNEW_VERSION
 ```
 
-### Step 8: Publish GitHub Release
+### Step 9: Publish GitHub Release
 
 Run:
 
@@ -126,7 +133,7 @@ Write the final changelog block to `/tmp/cipher-release-notes.md` before invokin
 
 If `gh` is unavailable or unauthenticated, stop after pushing the tag and tell the user the GitHub Release must be created manually.
 
-### Step 9: Confirm Success
+### Step 10: Confirm Success
 
 Report:
 - old version -> new version
