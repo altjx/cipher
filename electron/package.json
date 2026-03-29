@@ -1,6 +1,6 @@
 {
   "name": "cipher",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Desktop client for Google Messages",
   "main": "dist/main.js",
   "scripts": {
