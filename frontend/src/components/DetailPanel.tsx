@@ -165,7 +165,10 @@ export default function DetailPanel({ conversationId, conversation, focusPartici
             <div key={p.id} className="flex items-center gap-2.5 py-1.5">
               <Avatar name={p.name} participantId={p.id} size={32} rounded="10px" gradientKey={p.avatarColor || undefined} />
               <div className="min-w-0">
-                <div className="text-[13px] truncate">{p.name}</div>
+                <div className="text-[13px] truncate flex items-center gap-1">
+                  <span className="truncate">{p.name}</span>
+                  {p.number && p.number === p.name && <CopyButton text={p.number} />}
+                </div>
                 {p.number && p.number !== p.name && (
                   <div className="flex items-center gap-1">
                     <span className="text-[11px] text-[var(--text-3)] truncate">{p.number}</span>

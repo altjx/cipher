@@ -51,13 +51,13 @@ Use `.claude/agents/changelog-humanizer.md`.
 
 If `DATA_SOURCE=prs`, prefer `PR_DATA`. Each PR should produce a single changelog entry.
 
-Map types to sections:
+Map types to Keep a Changelog sections:
 - `feat` -> `### Added`
 - `fix` -> `### Fixed`
-- `perf` -> `### Performance`
-- `docs` -> `### Documentation`
-- `refactor`, `style` -> `### Changed`
-- `chore`, `test`, `ci` -> `### Maintenance`
+- `perf`, `refactor`, `style` -> `### Changed`
+- `chore`, `test`, `ci`, `docs` -> omit unless user-facing
+
+Also use `### Deprecated`, `### Removed`, and `### Security` when applicable.
 
 If the humanizer returns `SKIP: Internal change with no user-facing impact`, omit it.
 
