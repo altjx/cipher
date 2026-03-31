@@ -3,6 +3,7 @@ import { Search, MessageCircle, PanelLeftClose, PanelLeftOpen, Trash2, Archive, 
 import type { Conversation, WsConversationUpdate, WsTyping, SearchResult } from '../api/client';
 import { searchMessages, fetchConversations, deleteConversation, archiveConversation, muteConversation, blockConversation } from '../api/client';
 import Avatar from './Avatar';
+import { getConversationActivityTimestamp, getReactionPreviewText, shouldShowReactionPreview } from '../utils/conversationActivity';
 
 interface ConversationListProps {
   conversations: Conversation[];
@@ -255,8 +256,8 @@ export default function ConversationList({
   }, [search]);
 
   const sorted = [...conversations].sort((a, b) => {
-    const tsA = a.lastMessage?.timestamp ?? 0;
-    const tsB = b.lastMessage?.timestamp ?? 0;
+    const tsA = getConversationActivityTimestamp(a);
+    const tsB = getConversationActivityTimestamp(b);
     return tsB - tsA;
   });
 
@@ -472,9 +473,9 @@ export default function ConversationList({
                       <span className="text-[13px] font-medium text-[var(--text)] truncate">
                         {conv.name}
                       </span>
-                      {conv.lastMessage && (
+                      {(conv.lastMessage || conv.lastReaction) && (
                         <span className="text-[10px] text-[var(--text-3)] flex-shrink-0 ml-2">
-                          {relativeTime(conv.lastMessage.timestamp)}
+                          {relativeTime(getConversationActivityTimestamp(conv))}
                         </span>
                       )}
                     </div>
@@ -484,15 +485,25 @@ export default function ConversationList({
                           {[...typingMap.get(conv.id)!].join(', ')} {typingMap.get(conv.id)!.size === 1 ? 'is' : 'are'} typing...
                         </span>
                       ) : (
-                        <span className={`text-xs truncate ${conv.lastMessage && !conv.lastMessage.text ? 'text-[var(--text-3)] italic' : 'text-[var(--text-2)]'}`}>
-                          {conv.lastMessage
-                            ? conv.lastMessage.text
-                              ? truncate(conv.lastMessage.text, 40)
-                              : conv.lastMessage.mediaType === 'audio' ? 'Audio message'
-                              : conv.lastMessage.mediaType === 'video' ? 'Video'
-                              : conv.lastMessage.mediaType === 'image' ? 'Photo'
-                              : 'Attachment'
-                            : ''}
+                        <span
+                          className={`text-xs truncate ${
+                            shouldShowReactionPreview(conv)
+                              ? 'text-[var(--accent)]'
+                              : conv.lastMessage && !conv.lastMessage.text
+                                ? 'text-[var(--text-3)] italic'
+                                : 'text-[var(--text-2)]'
+                          }`}
+                        >
+                          {shouldShowReactionPreview(conv)
+                            ? truncate(getReactionPreviewText(conv), 40)
+                            : conv.lastMessage
+                              ? conv.lastMessage.text
+                                ? truncate(conv.lastMessage.text, 40)
+                                : conv.lastMessage.mediaType === 'audio' ? 'Audio message'
+                                : conv.lastMessage.mediaType === 'video' ? 'Video'
+                                : conv.lastMessage.mediaType === 'image' ? 'Photo'
+                                : 'Attachment'
+                              : ''}
                         </span>
                       )}
                       {conv.unread && (
