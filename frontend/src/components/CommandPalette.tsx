@@ -7,6 +7,7 @@ import type { Conversation } from '../api/client';
 import { themeOrder, themeMap, applyTheme } from '../config/themes';
 import { useTheme } from '../context/ThemeContext';
 import Avatar from './Avatar';
+import { getReactionPreviewText, shouldShowReactionPreview } from '../utils/conversationActivity';
 
 // ---- Command definitions ----
 
@@ -471,7 +472,13 @@ export default function CommandPalette({
         <div className="flex-1 min-w-0 text-left">
           <div className="text-[13px] font-medium text-[var(--text)] truncate">{conv.name}</div>
           <div className="text-[11px] text-[var(--text-3)] truncate">
-            {conv.isGroup ? 'Group' : conv.lastMessage?.text ? conv.lastMessage.text.slice(0, 50) : 'No messages'}
+            {conv.isGroup
+              ? 'Group'
+              : shouldShowReactionPreview(conv)
+                ? getReactionPreviewText(conv)
+                : conv.lastMessage?.text
+                  ? conv.lastMessage.text.slice(0, 50)
+                  : 'No messages'}
           </div>
         </div>
         {conv.unread && (

@@ -29,11 +29,19 @@ export interface LastMessage {
   mediaType?: string;
 }
 
+export interface LastReaction {
+  emoji: string;
+  reactorId: string;
+  reactorName: string;
+  timestamp: number;
+}
+
 export interface Conversation {
   id: string;
   name: string;
   isGroup: boolean;
   lastMessage: LastMessage;
+  lastReaction?: LastReaction;
   unread: boolean;
   participants: Participant[];
   avatarUrl: string;
