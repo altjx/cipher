@@ -743,6 +743,23 @@ func (c *GMClient) FetchMessages(conversationID string, count int, cursor string
 	if cursor == "" {
 		cached, cachedCursor, err := c.db.GetMessages(conversationID, count, "")
 		if err == nil && len(cached) > 0 {
+			// Check if conversation metadata shows a newer message than the
+			// cache contains. This catches the case where conversation_update
+			// events updated the preview (last message) but the actual
+			// messages were never fetched — common after reconnections or
+			// when handleWrappedMessage events are missed.
+			if conv, convErr := c.db.GetConversationByID(conversationID); convErr == nil && conv != nil && conv.LastMessage != nil {
+				newestCached := cached[len(cached)-1].Timestamp // messages are chronological (oldest first)
+				if conv.LastMessage.Timestamp > newestCached {
+					c.logger.Debug().
+						Str("conversation", conversationID).
+						Int64("conv_last_msg", conv.LastMessage.Timestamp).
+						Int64("cache_newest", newestCached).
+						Msg("Conversation has newer messages than cache, fetching from server")
+					return c.fetchMessagesFromServer(conversationID, count, cursor)
+				}
+			}
+
 			go c.backgroundRefreshMessages(conversationID, count, cached)
 			return cached, cachedCursor, nil
 		}
