@@ -27,13 +27,14 @@ type ConversationListResponse struct {
 }
 
 type ConversationResponse struct {
-	ID           string              `json:"id"`
-	Name         string              `json:"name"`
-	IsGroup      bool                `json:"isGroup"`
-	LastMessage  *LastMessageResponse `json:"lastMessage,omitempty"`
-	Unread       bool                `json:"unread"`
+	ID           string                `json:"id"`
+	Name         string                `json:"name"`
+	IsGroup      bool                  `json:"isGroup"`
+	LastMessage  *LastMessageResponse  `json:"lastMessage,omitempty"`
+	LastReaction *LastReactionResponse `json:"lastReaction,omitempty"`
+	Unread       bool                  `json:"unread"`
 	Participants []ParticipantResponse `json:"participants"`
-	AvatarURL    string              `json:"avatarUrl"`
+	AvatarURL    string                `json:"avatarUrl"`
 }
 
 type LastMessageResponse struct {
@@ -41,6 +42,13 @@ type LastMessageResponse struct {
 	Timestamp int64  `json:"timestamp"`
 	Sender    string `json:"sender"`
 	MediaType string `json:"mediaType,omitempty"`
+}
+
+type LastReactionResponse struct {
+	Emoji       string `json:"emoji"`
+	ReactorID   string `json:"reactorId"`
+	ReactorName string `json:"reactorName"`
+	Timestamp   int64  `json:"timestamp"`
 }
 
 type ParticipantResponse struct {
@@ -57,18 +65,18 @@ type MessageListResponse struct {
 }
 
 type MessageResponse struct {
-	ID              string              `json:"id"`
-	ConversationID  string              `json:"conversationId"`
-	Sender          *SenderResponse     `json:"sender"`
-	Text            string              `json:"text"`
-	Timestamp       int64               `json:"timestamp"`
-	Status          string              `json:"status"`
-	Reactions       []ReactionResponse  `json:"reactions"`
-	Media           []MediaResponse     `json:"media"`
-	ReplyTo          *ReplyToResponse    `json:"replyTo,omitempty"`
-	IsSystemMessage  bool                `json:"isSystemMessage"`
-	ConversationName string              `json:"conversationName,omitempty"`
-	IsGroup          bool                `json:"isGroup,omitempty"`
+	ID               string             `json:"id"`
+	ConversationID   string             `json:"conversationId"`
+	Sender           *SenderResponse    `json:"sender"`
+	Text             string             `json:"text"`
+	Timestamp        int64              `json:"timestamp"`
+	Status           string             `json:"status"`
+	Reactions        []ReactionResponse `json:"reactions"`
+	Media            []MediaResponse    `json:"media"`
+	ReplyTo          *ReplyToResponse   `json:"replyTo,omitempty"`
+	IsSystemMessage  bool               `json:"isSystemMessage"`
+	ConversationName string             `json:"conversationName,omitempty"`
+	IsGroup          bool               `json:"isGroup,omitempty"`
 }
 
 type SenderResponse struct {

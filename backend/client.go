@@ -632,9 +632,19 @@ func (c *GMClient) fetchConversationsFromServer(count int, folder string) ([]Con
 			}
 		}
 
-		convs = append(convs, cr)
 		if err := c.db.SaveConversation(cr); err != nil {
 			c.logger.Warn().Err(err).Str("conv_id", cr.ID).Msg("Failed to save conversation")
+			convs = append(convs, cr)
+			continue
+		}
+
+		if saved, err := c.db.GetConversationByID(cr.ID); err == nil && saved != nil {
+			convs = append(convs, *saved)
+		} else if err != nil {
+			c.logger.Warn().Err(err).Str("conv_id", cr.ID).Msg("Failed to load saved conversation")
+			convs = append(convs, cr)
+		} else {
+			convs = append(convs, cr)
 		}
 	}
 
@@ -705,8 +715,18 @@ func (c *GMClient) backgroundRefreshConversations(count int, folder string) {
 
 		if err := c.db.SaveConversation(cr); err != nil {
 			c.logger.Warn().Err(err).Str("conv_id", cr.ID).Msg("Failed to save conversation")
+			c.hub.BroadcastConversationUpdate(cr)
+			continue
 		}
-		c.hub.BroadcastConversationUpdate(cr)
+
+		if saved, err := c.db.GetConversationByID(cr.ID); err == nil && saved != nil {
+			c.hub.BroadcastConversationUpdate(*saved)
+		} else if err != nil {
+			c.logger.Warn().Err(err).Str("conv_id", cr.ID).Msg("Failed to load saved conversation for broadcast")
+			c.hub.BroadcastConversationUpdate(cr)
+		} else {
+			c.hub.BroadcastConversationUpdate(cr)
+		}
 	}
 
 	// Only prune if the server returned at least one conversation (see

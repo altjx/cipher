@@ -9,6 +9,7 @@ import DetailPanel from './components/DetailPanel';
 import CommandPalette from './components/CommandPalette';
 import ComposeDialog from './components/ComposeDialog';
 import SettingsPanel from './components/SettingsPanel';
+import { getConversationActivityTimestamp } from './utils/conversationActivity';
 
 type AppView = 'loading' | 'pairing' | 'main';
 
@@ -165,7 +166,7 @@ export default function App() {
 
   // Sorted conversation list for navigation
   const sortedConversations = useMemo(
-    () => [...conversations].sort((a, b) => (b.lastMessage?.timestamp ?? 0) - (a.lastMessage?.timestamp ?? 0)),
+    () => [...conversations].sort((a, b) => getConversationActivityTimestamp(b) - getConversationActivityTimestamp(a)),
     [conversations]
   );
 

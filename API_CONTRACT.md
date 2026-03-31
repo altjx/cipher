@@ -71,6 +71,12 @@ Query params: `?limit=50&folder=inbox`
         "timestamp": 1710500000000,
         "sender": "John Doe"
       },
+      "lastReaction": {
+        "emoji": "👍",
+        "reactorId": "part_456",
+        "reactorName": "John Doe",
+        "timestamp": 1710500005000
+      },
       "unread": true,
       "participants": [
         {

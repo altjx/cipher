@@ -56,6 +56,10 @@ func (d *Database) migrate() error {
 		last_message_text TEXT NOT NULL DEFAULT '',
 		last_message_timestamp INTEGER NOT NULL DEFAULT 0,
 		last_message_sender TEXT NOT NULL DEFAULT '',
+		last_reaction_emoji TEXT NOT NULL DEFAULT '',
+		last_reaction_reactor_name TEXT NOT NULL DEFAULT '',
+		last_reaction_reactor_id TEXT NOT NULL DEFAULT '',
+		last_reaction_timestamp INTEGER NOT NULL DEFAULT 0,
 		participants_json TEXT NOT NULL DEFAULT '[]',
 		updated_at INTEGER NOT NULL DEFAULT 0
 	);
@@ -106,6 +110,12 @@ func (d *Database) migrate() error {
 	// Add last_message_media_type column to existing conversations tables (ignore error if already exists)
 	d.db.Exec(`ALTER TABLE conversations ADD COLUMN last_message_media_type TEXT NOT NULL DEFAULT ''`)
 
+	// Add reaction preview columns to existing conversations tables (ignore error if already exists)
+	d.db.Exec(`ALTER TABLE conversations ADD COLUMN last_reaction_emoji TEXT NOT NULL DEFAULT ''`)
+	d.db.Exec(`ALTER TABLE conversations ADD COLUMN last_reaction_reactor_name TEXT NOT NULL DEFAULT ''`)
+	d.db.Exec(`ALTER TABLE conversations ADD COLUMN last_reaction_reactor_id TEXT NOT NULL DEFAULT ''`)
+	d.db.Exec(`ALTER TABLE conversations ADD COLUMN last_reaction_timestamp INTEGER NOT NULL DEFAULT 0`)
+
 	return nil
 }
 
@@ -122,16 +132,26 @@ func (d *Database) SaveConversation(conv ConversationResponse) error {
 	lastTimestamp := int64(0)
 	lastSender := ""
 	lastMediaType := ""
+	lastReactionEmoji := ""
+	lastReactionReactorName := ""
+	lastReactionReactorID := ""
+	lastReactionTimestamp := int64(0)
 	if conv.LastMessage != nil {
 		lastText = conv.LastMessage.Text
 		lastTimestamp = conv.LastMessage.Timestamp
 		lastSender = conv.LastMessage.Sender
 		lastMediaType = conv.LastMessage.MediaType
 	}
+	if conv.LastReaction != nil {
+		lastReactionEmoji = conv.LastReaction.Emoji
+		lastReactionReactorName = conv.LastReaction.ReactorName
+		lastReactionReactorID = conv.LastReaction.ReactorID
+		lastReactionTimestamp = conv.LastReaction.Timestamp
+	}
 
 	_, err = d.db.Exec(`
-		INSERT INTO conversations (id, name, is_group, unread, avatar_url, last_message_text, last_message_timestamp, last_message_sender, last_message_media_type, participants_json, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO conversations (id, name, is_group, unread, avatar_url, last_message_text, last_message_timestamp, last_message_sender, last_message_media_type, last_reaction_emoji, last_reaction_reactor_name, last_reaction_reactor_id, last_reaction_timestamp, participants_json, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name=excluded.name,
 			is_group=excluded.is_group,
@@ -141,10 +161,27 @@ func (d *Database) SaveConversation(conv ConversationResponse) error {
 			last_message_timestamp=excluded.last_message_timestamp,
 			last_message_sender=excluded.last_message_sender,
 			last_message_media_type=excluded.last_message_media_type,
+			last_reaction_emoji=CASE
+				WHEN excluded.last_message_timestamp >= conversations.last_reaction_timestamp THEN ''
+				ELSE conversations.last_reaction_emoji
+			END,
+			last_reaction_reactor_name=CASE
+				WHEN excluded.last_message_timestamp >= conversations.last_reaction_timestamp THEN ''
+				ELSE conversations.last_reaction_reactor_name
+			END,
+			last_reaction_reactor_id=CASE
+				WHEN excluded.last_message_timestamp >= conversations.last_reaction_timestamp THEN ''
+				ELSE conversations.last_reaction_reactor_id
+			END,
+			last_reaction_timestamp=CASE
+				WHEN excluded.last_message_timestamp >= conversations.last_reaction_timestamp THEN 0
+				ELSE conversations.last_reaction_timestamp
+			END,
 			participants_json=excluded.participants_json,
 			updated_at=excluded.updated_at
 	`, conv.ID, conv.Name, conv.IsGroup, conv.Unread, conv.AvatarURL,
 		lastText, lastTimestamp, lastSender, lastMediaType,
+		lastReactionEmoji, lastReactionReactorName, lastReactionReactorID, lastReactionTimestamp,
 		string(participantsJSON), lastTimestamp)
 	return err
 }
@@ -158,9 +195,14 @@ func (d *Database) GetConversations(limit int) ([]ConversationResponse, error) {
 	}
 
 	rows, err := d.db.Query(`
-		SELECT id, name, is_group, unread, avatar_url, last_message_text, last_message_timestamp, last_message_sender, last_message_media_type, participants_json
+		SELECT id, name, is_group, unread, avatar_url, last_message_text, last_message_timestamp, last_message_sender, last_message_media_type,
+		       last_reaction_emoji, last_reaction_reactor_name, last_reaction_reactor_id, last_reaction_timestamp,
+		       participants_json
 		FROM conversations
-		ORDER BY last_message_timestamp DESC
+		ORDER BY CASE
+			WHEN last_reaction_timestamp > last_message_timestamp THEN last_reaction_timestamp
+			ELSE last_message_timestamp
+		END DESC
 		LIMIT ?
 	`, limit)
 	if err != nil {
@@ -174,11 +216,15 @@ func (d *Database) GetConversations(limit int) ([]ConversationResponse, error) {
 		var isGroup int
 		var unread int
 		var lastText, lastSender, lastMediaType string
+		var lastReactionEmoji, lastReactionReactorName, lastReactionReactorID string
 		var lastTimestamp int64
+		var lastReactionTimestamp int64
 		var participantsJSON string
 
 		if err := rows.Scan(&c.ID, &c.Name, &isGroup, &unread, &c.AvatarURL,
-			&lastText, &lastTimestamp, &lastSender, &lastMediaType, &participantsJSON); err != nil {
+			&lastText, &lastTimestamp, &lastSender, &lastMediaType,
+			&lastReactionEmoji, &lastReactionReactorName, &lastReactionReactorID, &lastReactionTimestamp,
+			&participantsJSON); err != nil {
 			return nil, err
 		}
 
@@ -191,6 +237,15 @@ func (d *Database) GetConversations(limit int) ([]ConversationResponse, error) {
 				Timestamp: lastTimestamp,
 				Sender:    lastSender,
 				MediaType: lastMediaType,
+			}
+		}
+
+		if lastReactionTimestamp > 0 && lastReactionEmoji != "" {
+			c.LastReaction = &LastReactionResponse{
+				Emoji:       lastReactionEmoji,
+				ReactorName: lastReactionReactorName,
+				ReactorID:   lastReactionReactorID,
+				Timestamp:   lastReactionTimestamp,
 			}
 		}
 
@@ -215,13 +270,18 @@ func (d *Database) GetConversationByID(id string) (*ConversationResponse, error)
 	var c ConversationResponse
 	var isGroup, unread int
 	var lastText, lastSender, lastMediaType, participantsJSON string
-	var lastTimestamp int64
+	var lastReactionEmoji, lastReactionReactorName, lastReactionReactorID string
+	var lastTimestamp, lastReactionTimestamp int64
 
 	err := d.db.QueryRow(`
-		SELECT id, name, is_group, unread, avatar_url, last_message_text, last_message_timestamp, last_message_sender, last_message_media_type, participants_json
+		SELECT id, name, is_group, unread, avatar_url, last_message_text, last_message_timestamp, last_message_sender, last_message_media_type,
+		       last_reaction_emoji, last_reaction_reactor_name, last_reaction_reactor_id, last_reaction_timestamp,
+		       participants_json
 		FROM conversations WHERE id = ?
 	`, id).Scan(&c.ID, &c.Name, &isGroup, &unread, &c.AvatarURL,
-		&lastText, &lastTimestamp, &lastSender, &lastMediaType, &participantsJSON)
+		&lastText, &lastTimestamp, &lastSender, &lastMediaType,
+		&lastReactionEmoji, &lastReactionReactorName, &lastReactionReactorID, &lastReactionTimestamp,
+		&participantsJSON)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -234,10 +294,56 @@ func (d *Database) GetConversationByID(id string) (*ConversationResponse, error)
 	if lastText != "" || lastTimestamp != 0 {
 		c.LastMessage = &LastMessageResponse{Text: lastText, Timestamp: lastTimestamp, Sender: lastSender, MediaType: lastMediaType}
 	}
+	if lastReactionTimestamp > 0 && lastReactionEmoji != "" {
+		c.LastReaction = &LastReactionResponse{
+			Emoji:       lastReactionEmoji,
+			ReactorName: lastReactionReactorName,
+			ReactorID:   lastReactionReactorID,
+			Timestamp:   lastReactionTimestamp,
+		}
+	}
 	if err := json.Unmarshal([]byte(participantsJSON), &c.Participants); err != nil {
 		c.Participants = []ParticipantResponse{}
 	}
 	return &c, nil
+}
+
+func (d *Database) SetConversationLastReaction(conversationID string, reaction LastReactionResponse) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	_, err := d.db.Exec(`
+		UPDATE conversations
+		SET
+			last_reaction_emoji = ?,
+			last_reaction_reactor_name = ?,
+			last_reaction_reactor_id = ?,
+			last_reaction_timestamp = ?,
+			updated_at = CASE
+				WHEN updated_at > ? THEN updated_at
+				ELSE ?
+			END
+		WHERE id = ?
+	`, reaction.Emoji, reaction.ReactorName, reaction.ReactorID, reaction.Timestamp, reaction.Timestamp, reaction.Timestamp, conversationID)
+
+	return err
+}
+
+func (d *Database) ClearConversationLastReactionIfOlder(conversationID string, timestamp int64) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	_, err := d.db.Exec(`
+		UPDATE conversations
+		SET
+			last_reaction_emoji = '',
+			last_reaction_reactor_name = '',
+			last_reaction_reactor_id = '',
+			last_reaction_timestamp = 0
+		WHERE id = ? AND last_reaction_timestamp > 0 AND last_reaction_timestamp <= ?
+	`, conversationID, timestamp)
+
+	return err
 }
 
 func (d *Database) SaveMessage(msg MessageResponse) error {

@@ -142,6 +142,11 @@ func (c *GMClient) handleWrappedMessage(msg *libgm.WrappedMessage) {
 	existingMsg, _ := c.db.GetMessageByID(mr.ID)
 	isUpdate := existingMsg != nil
 
+	var reactionActivity *LastReactionResponse
+	if isUpdate && !msg.IsOld {
+		reactionActivity = c.buildReactionActivity(existingMsg, mr)
+	}
+
 	// Enrich with conversation metadata for notifications
 	if conv, err := c.db.GetConversationByID(mr.ConversationID); err == nil && conv != nil {
 		mr.ConversationName = conv.Name
@@ -151,6 +156,23 @@ func (c *GMClient) handleWrappedMessage(msg *libgm.WrappedMessage) {
 	// Save to DB
 	if err := c.db.SaveMessage(mr); err != nil {
 		c.logger.Error().Err(err).Str("msg_id", mr.ID).Msg("Failed to save message")
+	}
+
+	// Clear stale reaction previews when a newer real message arrives.
+	if !isUpdate && !msg.IsOld {
+		if err := c.db.ClearConversationLastReactionIfOlder(mr.ConversationID, mr.Timestamp); err != nil {
+			c.logger.Warn().Err(err).Str("conv_id", mr.ConversationID).Msg("Failed to clear stale reaction preview")
+		}
+	}
+
+	if reactionActivity != nil {
+		if err := c.db.SetConversationLastReaction(mr.ConversationID, *reactionActivity); err != nil {
+			c.logger.Warn().Err(err).Str("conv_id", mr.ConversationID).Msg("Failed to save reaction preview")
+		} else if conv, err := c.db.GetConversationByID(mr.ConversationID); err == nil && conv != nil {
+			c.hub.BroadcastConversationUpdate(*conv)
+		} else if err != nil {
+			c.logger.Warn().Err(err).Str("conv_id", mr.ConversationID).Msg("Failed to load conversation for reaction preview broadcast")
+		}
 	}
 
 	// Broadcast to WebSocket clients
@@ -197,7 +219,107 @@ func (c *GMClient) handleConversationUpdate(conv *gmproto.Conversation) {
 		c.logger.Error().Err(err).Str("conv_id", cr.ID).Msg("Failed to save conversation update")
 	}
 
-	c.hub.BroadcastConversationUpdate(cr)
+	toBroadcast := cr
+	if saved, err := c.db.GetConversationByID(cr.ID); err == nil && saved != nil {
+		toBroadcast = *saved
+	} else if err != nil {
+		c.logger.Warn().Err(err).Str("conv_id", cr.ID).Msg("Failed to load conversation for broadcast")
+	}
+
+	c.hub.BroadcastConversationUpdate(toBroadcast)
+}
+
+type reactionChange struct {
+	emoji    string
+	senderID string
+}
+
+func reactionChangeKey(emoji, senderID string) string {
+	return emoji + "\x1f" + senderID
+}
+
+func addedReactionChanges(previous, current []ReactionResponse) []reactionChange {
+	previousSet := make(map[string]struct{})
+	for _, r := range previous {
+		if r.Emoji == "" {
+			continue
+		}
+		for _, senderID := range r.SenderIDs {
+			if senderID == "" {
+				continue
+			}
+			previousSet[reactionChangeKey(r.Emoji, senderID)] = struct{}{}
+		}
+	}
+
+	seen := make(map[string]struct{})
+	added := make([]reactionChange, 0)
+	for _, r := range current {
+		if r.Emoji == "" {
+			continue
+		}
+		for _, senderID := range r.SenderIDs {
+			if senderID == "" {
+				continue
+			}
+			key := reactionChangeKey(r.Emoji, senderID)
+			if _, exists := previousSet[key]; exists {
+				continue
+			}
+			if _, duplicate := seen[key]; duplicate {
+				continue
+			}
+			seen[key] = struct{}{}
+			added = append(added, reactionChange{emoji: r.Emoji, senderID: senderID})
+		}
+	}
+
+	return added
+}
+
+func (c *GMClient) buildReactionActivity(previous *MessageResponse, updated MessageResponse) *LastReactionResponse {
+	if previous == nil || updated.Sender == nil || !updated.Sender.IsMe {
+		return nil
+	}
+
+	conv, err := c.db.GetConversationByID(updated.ConversationID)
+	if err != nil || conv == nil {
+		return nil
+	}
+
+	myParticipantID := ""
+	nameByID := make(map[string]string, len(conv.Participants))
+	for _, p := range conv.Participants {
+		if p.ID != "" {
+			nameByID[p.ID] = p.Name
+		}
+		if p.IsMe {
+			myParticipantID = p.ID
+		}
+	}
+
+	for _, change := range addedReactionChanges(previous.Reactions, updated.Reactions) {
+		if change.senderID == "" {
+			continue
+		}
+		if myParticipantID != "" && change.senderID == myParticipantID {
+			continue
+		}
+
+		reactorName := nameByID[change.senderID]
+		if reactorName == "" {
+			reactorName = "Someone"
+		}
+
+		return &LastReactionResponse{
+			Emoji:       change.emoji,
+			ReactorID:   change.senderID,
+			ReactorName: reactorName,
+			Timestamp:   time.Now().UnixMilli(),
+		}
+	}
+
+	return nil
 }
 
 func (c *GMClient) handleAuthTokenRefreshed() {
