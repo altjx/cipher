@@ -821,6 +821,23 @@ func (c *GMClient) fetchMessagesFromServer(conversationID string, count int, cur
 	var msgs []MessageResponse
 	for _, msg := range resp.GetMessages() {
 		mr := ConvertMessage(msg)
+
+		// Google sometimes returns messages with a mismatched conversationID.
+		// This happens when a participant (e.g. "Bae") exists in both a personal
+		// and group conversation — Google may tag the group message with the
+		// personal conversation ID. Since we explicitly asked for messages from
+		// conversationID, override the message's conversationID to match.
+		if mr.ConversationID != conversationID {
+			c.logger.Warn().
+				Str("requested_conv", conversationID).
+				Str("message_conv_id", mr.ConversationID).
+				Str("msg_id", mr.ID).
+				Str("sender", mr.Sender.Name).
+				Str("text_preview", truncateText(mr.Text, 60)).
+				Msg("Fixing mismatched conversationID from Google")
+			mr.ConversationID = conversationID
+		}
+
 		msgs = append(msgs, mr)
 		if err := c.db.SaveMessage(mr); err != nil {
 			c.logger.Warn().Err(err).Str("msg_id", mr.ID).Msg("Failed to save message")
@@ -842,6 +859,14 @@ func (c *GMClient) fetchMessagesFromServer(conversationID string, count int, cur
 	}
 
 	return msgs, nextCursor, nil
+}
+
+// truncateText returns the first n characters of s, appending "..." if truncated.
+func truncateText(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 // backgroundRefreshMessages fetches fresh messages from the server, saves them
@@ -872,6 +897,18 @@ func (c *GMClient) backgroundRefreshMessages(conversationID string, count int, c
 
 	for _, msg := range resp.GetMessages() {
 		mr := ConvertMessage(msg)
+
+		// Fix mismatched conversationID (see fetchMessagesFromServer for details)
+		if mr.ConversationID != conversationID {
+			c.logger.Warn().
+				Str("requested_conv", conversationID).
+				Str("message_conv_id", mr.ConversationID).
+				Str("msg_id", mr.ID).
+				Str("sender", mr.Sender.Name).
+				Msg("Fixing mismatched conversationID in background refresh")
+			mr.ConversationID = conversationID
+		}
+
 		if err := c.db.SaveMessage(mr); err != nil {
 			c.logger.Warn().Err(err).Str("msg_id", mr.ID).Msg("Failed to save message")
 		}

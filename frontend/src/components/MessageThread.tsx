@@ -753,10 +753,13 @@ export default function MessageThread({ conversationId, conversation, subscribe,
 
   // Build messages with date separators, grouping consecutive image-only messages
   const elements: React.ReactNode[] = [];
+  // Filter out empty messages (no text, no media, not a system message) — these are
+  // phantom entries (e.g. reaction-only updates from Google) that render as blank bars.
+  const visibleMessages = messages.filter((m) => m.text || m.media.length > 0 || m.isSystemMessage);
   let i = 0;
-  while (i < messages.length) {
-    const msg = messages[i];
-    const prev = i > 0 ? messages[i - 1] : null;
+  while (i < visibleMessages.length) {
+    const msg = visibleMessages[i];
+    const prev = i > 0 ? visibleMessages[i - 1] : null;
 
     const isSearchMatch = matchingIds === null || matchingIds.has(msg.id);
 
@@ -778,12 +781,12 @@ export default function MessageThread({ conversationId, conversation, subscribe,
       const group: Message[] = [msg];
       let j = i + 1;
       while (
-        j < messages.length &&
-        isImageOnly(messages[j]) &&
-        messages[j].sender.id === msg.sender.id &&
-        isSameDay(msg.timestamp, messages[j].timestamp)
+        j < visibleMessages.length &&
+        isImageOnly(visibleMessages[j]) &&
+        visibleMessages[j].sender.id === msg.sender.id &&
+        isSameDay(msg.timestamp, visibleMessages[j].timestamp)
       ) {
-        group.push(messages[j]);
+        group.push(visibleMessages[j]);
         j++;
       }
 
@@ -989,7 +992,7 @@ export default function MessageThread({ conversationId, conversation, subscribe,
           }
         }}
         tabIndex={-1}
-        className="flex-1 overflow-y-auto px-6 py-5 focus:outline-none"
+        className="flex-1 overflow-y-auto px-6 pt-5 pb-3 focus:outline-none"
       >
         {loadingMore && (
           <div className="text-center text-[var(--text-3)] text-xs py-2">Loading older messages...</div>
