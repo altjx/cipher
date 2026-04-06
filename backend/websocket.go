@@ -13,10 +13,10 @@ import (
 // newUpgrader creates a WebSocket upgrader that only allows localhost origins.
 func newUpgrader(port int) websocket.Upgrader {
 	allowedOrigins := map[string]bool{
-		"http://localhost:5173":                          true,
-		fmt.Sprintf("http://localhost:%d", port):         true,
-		"http://127.0.0.1:5173":                         true,
-		fmt.Sprintf("http://127.0.0.1:%d", port):        true,
+		"http://localhost:5173":                  true,
+		fmt.Sprintf("http://localhost:%d", port): true,
+		"http://127.0.0.1:5173":                  true,
+		fmt.Sprintf("http://127.0.0.1:%d", port): true,
 	}
 	return websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {

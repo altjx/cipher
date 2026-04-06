@@ -215,7 +215,7 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
               : showGroupStyle
                 ? 'bg-[var(--surface-2)] text-[var(--text)] rounded-[4px_18px_18px_4px] border-l-[3px]'
                 : 'bg-[var(--surface-2)] text-[var(--text)] rounded-[18px_18px_18px_6px]'
-          } px-4 py-2.5 relative ${message.reactions.length > 0 ? 'mb-3' : ''}`}
+          } px-4 py-2.5 relative overflow-hidden ${message.reactions.length > 0 ? 'mb-3' : ''}`}
           style={showGroupStyle ? { borderLeftColor: sColor } : undefined}
           onContextMenu={(e) => {
             e.preventDefault();
@@ -249,7 +249,7 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
           )}
 
           {message.text && (
-            <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{linkifyText(message.text)}</p>
+            <p className="text-sm whitespace-pre-wrap break-words leading-relaxed" style={{ overflowWrap: 'anywhere' }}>{linkifyText(message.text)}</p>
           )}
 
           {message.text && URL_RE.test(message.text) && (
