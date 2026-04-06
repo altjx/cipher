@@ -209,14 +209,7 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
         )}
 
         <div
-          className={`${
-            isMe
-              ? 'bg-[var(--accent-2)] text-white rounded-[18px_18px_6px_18px] shadow-[0_2px_8px_rgba(59,130,246,0.2)]'
-              : showGroupStyle
-                ? 'bg-[var(--surface-2)] text-[var(--text)] rounded-[4px_18px_18px_4px] border-l-[3px]'
-                : 'bg-[var(--surface-2)] text-[var(--text)] rounded-[18px_18px_18px_6px]'
-          } px-4 py-2.5 relative overflow-hidden ${message.reactions.length > 0 ? 'mb-3' : ''}`}
-          style={showGroupStyle ? { borderLeftColor: sColor } : undefined}
+          className={`relative ${message.reactions.length > 0 ? 'mb-3' : ''}`}
           onContextMenu={(e) => {
             e.preventDefault();
             const target = e.target as HTMLElement;
@@ -232,37 +225,48 @@ export default function MessageBubble({ message, isMe, showSender, onReply, onRe
             openReactionPicker();
           }}
         >
-          {/* Colored sender name inside bubble for group chats */}
-          {showGroupStyle && showSender && message.sender.name && (
-            <span className="text-[11px] font-semibold block mb-1" style={{ color: sColor }}>{message.sender.name}</span>
-          )}
+          <div
+            className={`${
+              isMe
+                ? 'bg-[var(--accent-2)] text-white rounded-[18px_18px_6px_18px] shadow-[0_2px_8px_rgba(59,130,246,0.2)]'
+                : showGroupStyle
+                  ? 'bg-[var(--surface-2)] text-[var(--text)] rounded-[4px_18px_18px_4px] border-l-[3px]'
+                  : 'bg-[var(--surface-2)] text-[var(--text)] rounded-[18px_18px_18px_6px]'
+            } px-4 py-2.5 relative overflow-hidden`}
+            style={showGroupStyle ? { borderLeftColor: sColor } : undefined}
+          >
+            {/* Colored sender name inside bubble for group chats */}
+            {showGroupStyle && showSender && message.sender.name && (
+              <span className="text-[11px] font-semibold block mb-1" style={{ color: sColor }}>{message.sender.name}</span>
+            )}
 
-          {message.replyTo && (
-            <div className="border-l-2 border-white/30 pl-2 mb-1.5 text-xs opacity-70">
-              <span className="font-medium">{message.replyTo.sender}</span>
-              <p className="truncate">{message.replyTo.text}</p>
+            {message.replyTo && (
+              <div className="border-l-2 border-white/30 pl-2 mb-1.5 text-xs opacity-70">
+                <span className="font-medium">{message.replyTo.sender}</span>
+                <p className="truncate">{message.replyTo.text}</p>
+              </div>
+            )}
+
+            {message.media.length > 0 && (
+              <MediaPlayer media={message.media} messageId={message.id} isMe={isMe} onImageClick={onImageClick} onImageLoad={onImageLoad} />
+            )}
+
+            {message.text && (
+              <p className="text-sm whitespace-pre-wrap break-words leading-relaxed" style={{ overflowWrap: 'anywhere' }}>{linkifyText(message.text)}</p>
+            )}
+
+            {message.text && URL_RE.test(message.text) && (
+              <LinkPreview text={message.text} isMe={isMe} />
+            )}
+
+            <div className={`flex items-center gap-1 mt-1 ${isMe ? 'justify-end' : 'justify-start'} ${showTimestamp ? '' : 'hidden'}`}>
+              <span className={`text-[10px] ${isMe ? 'text-white/45' : 'text-[var(--text-3)]'}`}>{formatTime(message.timestamp)}</span>
+              {isMe && <StatusIcon status={message.status} />}
             </div>
-          )}
-
-          {message.media.length > 0 && (
-            <MediaPlayer media={message.media} messageId={message.id} isMe={isMe} onImageClick={onImageClick} onImageLoad={onImageLoad} />
-          )}
-
-          {message.text && (
-            <p className="text-sm whitespace-pre-wrap break-words leading-relaxed" style={{ overflowWrap: 'anywhere' }}>{linkifyText(message.text)}</p>
-          )}
-
-          {message.text && URL_RE.test(message.text) && (
-            <LinkPreview text={message.text} isMe={isMe} />
-          )}
-
-          <div className={`flex items-center gap-1 mt-1 ${isMe ? 'justify-end' : 'justify-start'} ${showTimestamp ? '' : 'hidden'}`}>
-            <span className={`text-[10px] ${isMe ? 'text-white/45' : 'text-[var(--text-3)]'}`}>{formatTime(message.timestamp)}</span>
-            {isMe && <StatusIcon status={message.status} />}
           </div>
 
           {message.reactions.length > 0 && (
-            <div className={`absolute -bottom-3 ${isMe ? 'left-2' : 'right-2'} flex gap-0.5`}>
+            <div className={`absolute -bottom-3 z-10 ${isMe ? 'left-2' : 'right-2'} flex gap-0.5`}>
               {message.reactions.map((r) => {
                 const isMine = myParticipantId ? r.senderIds.includes(myParticipantId) : false;
                 return (
