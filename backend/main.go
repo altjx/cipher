@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -24,16 +25,36 @@ func main() {
 	frontendDir := flag.String("frontend", "", "Directory containing frontend static files to serve")
 	flag.Parse()
 
-	// Set up zerolog
-	logger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).
+	// Set up zerolog — write to both stderr and a log file for diagnostics
+	consoleWriter := zerolog.ConsoleWriter{Out: os.Stderr}
+
+	// Ensure data directory exists before opening log file
+	if err := os.MkdirAll(*dataDir, 0700); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create data directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	logFilePath := filepath.Join(*dataDir, "diagnostic.log")
+	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to open log file %s: %v\n", logFilePath, err)
+		// Fall back to console-only logging
+		logFile = nil
+	}
+
+	var logWriter io.Writer
+	if logFile != nil {
+		logWriter = io.MultiWriter(consoleWriter, logFile)
+	} else {
+		logWriter = consoleWriter
+	}
+
+	logger := zerolog.New(logWriter).
 		With().
 		Timestamp().
 		Logger()
 
-	// Ensure data directory exists
-	if err := os.MkdirAll(*dataDir, 0700); err != nil {
-		logger.Fatal().Err(err).Msg("Failed to create data directory")
-	}
+	logger.Info().Str("log_file", logFilePath).Msg("Diagnostic logging enabled")
 
 	// Initialize database
 	dbPath := filepath.Join(*dataDir, "messages.db")
@@ -73,6 +94,9 @@ func main() {
 			cli.Disconnect()
 		}
 		db.Close()
+		if logFile != nil {
+			logFile.Close()
+		}
 		os.Exit(0)
 	}()
 
