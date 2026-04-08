@@ -35,10 +35,16 @@ If you just want to use Cipher, you do not need Go, Node.js, or any development 
 
 ## Screenshots
 
-<!-- Replace the placeholder paths below with actual screenshot images -->
+<p align="center">
+  <img src=".github/conversation_view.png" width="720" alt="Conversation view" />
+  <br />
+  <em>Clean, native-feeling conversation view with reactions and read receipts</em>
+</p>
+
+<br />
 
 <p align="center">
-  <img src=".github/screenshots/jump-to-conversation.png" width="720" alt="Jump to conversation with Command Palette" />
+  <img src=".github/jump_to_conversion.png" width="720" alt="Jump to conversation with Command Palette" />
   <br />
   <em>Instantly jump to any conversation with <kbd>⌘</kbd><kbd>G</kbd></em>
 </p>
@@ -46,7 +52,7 @@ If you just want to use Cipher, you do not need Go, Node.js, or any development 
 <br />
 
 <p align="center">
-  <img src=".github/screenshots/themes.png" width="720" alt="Theme selection" />
+  <img src=".github/themes.png" width="720" alt="Theme selection" />
   <br />
   <em>9 built-in themes — switch instantly with <kbd>⌘</kbd><kbd>T</kbd></em>
 </p>
@@ -54,17 +60,26 @@ If you just want to use Cipher, you do not need Go, Node.js, or any development 
 <br />
 
 <p align="center">
-  <img src=".github/screenshots/typing-indicators.png" width="720" alt="Typing indicators" />
+  <img src=".github/typing_indicator_conversation_thread.png" width="360" alt="Typing indicator in conversation" />
+  <img src=".github/typing_indicator_sidebar.png" width="360" alt="Typing indicator in sidebar" />
   <br />
-  <em>Real-time typing indicators</em>
+  <em>Real-time typing indicators in conversations and the sidebar</em>
 </p>
 
 <br />
 
 <p align="center">
-  <img src=".github/screenshots/collapsed-sidebar.png" width="720" alt="Collapsed sidebar" />
+  <img src=".github/collapsed_sidebar.png" width="720" alt="Collapsed sidebar" />
   <br />
   <em>Collapse the sidebar for a focused view with <kbd>⌘</kbd><kbd>L</kbd></em>
+</p>
+
+<br />
+
+<p align="center">
+  <img src=".github/keyboard_shortcuts.png" width="720" alt="Keyboard shortcuts" />
+  <br />
+  <em>Full keyboard-driven navigation with <kbd>⌘</kbd><kbd>K</kbd> command palette</em>
 </p>
 
 <br />
