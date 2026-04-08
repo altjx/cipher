@@ -23,8 +23,12 @@ mockups/
 scripts/
 docs/RELEASE_PROCESS.md
 
-# Claude Code local settings
-.claude/settings.local.json
+# Claude Code
+.claude/
+
+# Build & release
+build.sh
+API_CONTRACT.md
 
 # Env
 .env

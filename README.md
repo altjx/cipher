@@ -166,13 +166,6 @@ npm run dev
 
 Open your browser to `http://localhost:5173` or use the Electron window. Scan the QR code with your Android phone to pair.
 
-### Build
-
-```bash
-# Build the full Electron app (macOS)
-./build.sh
-```
-
 ---
 
 ## Architecture
