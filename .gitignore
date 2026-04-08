@@ -25,6 +25,7 @@ docs/RELEASE_PROCESS.md
 
 # Claude Code
 .claude/
+CLAUDE.md
 
 # Build & release
 build.sh
