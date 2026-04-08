@@ -44,7 +44,7 @@ If you just want to use Cipher, you do not need Go, Node.js, or any development 
 <br />
 
 <p align="center">
-  <img src=".github/jump_to_conversion.png" width="720" alt="Jump to conversation with Command Palette" />
+  <img src=".github/jump_to_conversation.png" width="720" alt="Jump to conversation with Command Palette" />
   <br />
   <em>Instantly jump to any conversation with <kbd>⌘</kbd><kbd>G</kbd></em>
 </p>
@@ -137,7 +137,6 @@ If you just want to use Cipher, you do not need Go, Node.js, or any development 
 | <kbd>⌘</kbd><kbd>S</kbd> | Search all messages |
 | <kbd>⌘</kbd><kbd>,</kbd> | Settings |
 | <kbd>⌘</kbd><kbd>1</kbd>–<kbd>7</kbd> | Insert emoji |
-| <kbd>⌘</kbd><kbd>Shift</kbd><kbd>T</kbd> | Show timestamps |
 
 ### Desktop Integration (Electron)
 - Native macOS notifications with configurable system sounds
@@ -157,7 +156,7 @@ If you just want to use Cipher, you do not need Go, Node.js, or any development 
 ## Build From Source
 
 ### Prerequisites
-- [Go](https://go.dev/) 1.21+
+- [Go](https://go.dev/) 1.26+
 - [Node.js](https://nodejs.org/) 18+
 - [ffmpeg](https://ffmpeg.org/) (for audio transcoding)
 
