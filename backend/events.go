@@ -96,7 +96,7 @@ func (c *GMClient) handleClientReady(evt *events.ClientReady) {
 	// the entire cache. Defer pruning until validateSession confirms the
 	// session is alive and triggers a fresh server fetch.
 	if !c.freshSession.Load() && len(activeIDs) > 0 {
-		if cachedIDs, err := c.db.GetConversationIDs(); err == nil {
+		if cachedIDs, err := c.db.GetPrunableConversationIDs(); err == nil {
 			for _, id := range cachedIDs {
 				if !activeIDs[id] {
 					c.logger.Info().Str("conv_id", id).Msg("Removing stale conversation from cache")

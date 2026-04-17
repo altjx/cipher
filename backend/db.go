@@ -527,6 +527,35 @@ func (d *Database) GetConversationIDs() ([]string, error) {
 	return ids, nil
 }
 
+// GetPrunableConversationIDs returns IDs of cached conversations that are safe
+// to prune when reconciling with a server response. Empty conversations (no
+// messages, no reactions) are excluded because the server typically omits them
+// from ListConversations responses — pruning them would wipe freshly created
+// conversations that the user hasn't yet sent a message to.
+func (d *Database) GetPrunableConversationIDs() ([]string, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	rows, err := d.db.Query(`
+		SELECT id FROM conversations
+		WHERE last_message_timestamp > 0 OR last_reaction_timestamp > 0
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
 func (d *Database) DeleteConversation(conversationID string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()

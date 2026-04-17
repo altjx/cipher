@@ -122,6 +122,10 @@ func (c *GMClient) Status() ConnectionStatus {
 	return c.status.Load().(ConnectionStatus)
 }
 
+func (c *GMClient) SetStatus(s ConnectionStatus) {
+	c.status.Store(s)
+}
+
 func (c *GMClient) PhoneModel() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -648,11 +652,16 @@ func (c *GMClient) fetchConversationsFromServer(count int, folder string) ([]Con
 		}
 	}
 
-	// Only prune if the server returned at least one conversation. An empty
-	// response usually means a stale/broken session, not that the user deleted
-	// every conversation. Pruning on empty data would wipe the entire cache.
-	if len(activeIDs) > 0 {
-		if cachedIDs, err := c.db.GetConversationIDs(); err == nil {
+	// Only prune if:
+	//   (1) the server returned at least one conversation (an empty response
+	//       usually means a stale/broken session, not a wiped inbox), and
+	//   (2) the server returned fewer than `count` conversations, meaning we
+	//       have the full list rather than just the first page — otherwise a
+	//       conversation missing from the response might just be off the end.
+	// GetPrunableConversationIDs also excludes freshly created empty
+	// conversations, which the server omits from ListConversations.
+	if len(activeIDs) > 0 && len(resp.GetConversations()) < count {
+		if cachedIDs, err := c.db.GetPrunableConversationIDs(); err == nil {
 			for _, id := range cachedIDs {
 				if !activeIDs[id] {
 					c.logger.Info().Str("conv_id", id).Msg("Removing stale conversation from cache")
@@ -729,10 +738,12 @@ func (c *GMClient) backgroundRefreshConversations(count int, folder string) {
 		}
 	}
 
-	// Only prune if the server returned at least one conversation (see
-	// fetchConversationsFromServer for rationale).
-	if len(activeIDs) > 0 {
-		if cachedIDs, err := c.db.GetConversationIDs(); err == nil {
+	// Only prune when we have the full list and it's non-empty (see
+	// fetchConversationsFromServer for rationale). Skipping this check caused
+	// freshly created conversations to be deleted mid-session, since the
+	// server omits empty conversations from ListConversations responses.
+	if len(activeIDs) > 0 && len(resp.GetConversations()) < count {
+		if cachedIDs, err := c.db.GetPrunableConversationIDs(); err == nil {
 			for _, id := range cachedIDs {
 				if !activeIDs[id] {
 					c.logger.Info().Str("conv_id", id).Msg("Removing stale conversation from cache")
