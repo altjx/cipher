@@ -6,6 +6,14 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-04-17
+
+### Added
+- Added support for running multiple Cipher instances on the same Mac without port conflicts by dynamically assigning each instance its own port.
+
+### Fixed
+- Fixed an issue where conversations with inactive contacts would disappear from the sidebar and the "Go to Conversation" search when you had more than 50 conversations, even though they were still on your phone.
+
 ## [1.2.1] - 2026-04-17
 
 ### Fixed
