@@ -6,6 +6,18 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-04-17
+
+### Fixed
+- Fixed an issue where newly created conversations would disappear after the next background sync, causing the app to lose your selection and bounce you back to "Select a conversation".
+- Fixed emoji reactions on messages so they float properly above the message bubble instead of being cut off.
+- Fixed an issue where messages could appear in the wrong conversation when participants were in both personal and group chats, and fixed long URLs overflowing message bubbles and creating visual artifacts.
+- Fixed conversation previews in the sidebar to show the most recent activity, including emoji reactions from other people.
+- Fixed an issue where conversations could display an outdated message preview after reconnecting, even when newer messages were available on the server.
+
+### Documentation
+- Added AGPL-3.0 license, improved README accuracy, and added screenshots of the app.
+
 ## [1.2.0] - 2026-03-29
 
 ### Added
