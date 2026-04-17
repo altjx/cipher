@@ -90,7 +90,7 @@ export default function App() {
   useEffect(() => {
     if (view !== 'main') return;
 
-    fetchConversations(50)
+    fetchConversations(200)
       .then((res) => {
         setConversations(res.conversations);
       })
@@ -355,7 +355,7 @@ export default function App() {
     setComposeOpen(false);
     setSelectedConversationId(conversationId);
     // Refresh conversations to include the new one
-    fetchConversations(50)
+    fetchConversations(200)
       .then((res) => setConversations(res.conversations))
       .catch(() => {});
   }, []);
