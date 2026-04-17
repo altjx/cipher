@@ -107,8 +107,10 @@ func (s *Server) setupRoutes() {
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	allowedOrigins := map[string]bool{
 		"http://localhost:5173":                          true,
+		"http://localhost:5174":                          true,
 		fmt.Sprintf("http://localhost:%d", s.port):       true,
 		"http://127.0.0.1:5173":                         true,
+		"http://127.0.0.1:5174":                         true,
 		fmt.Sprintf("http://127.0.0.1:%d", s.port):      true,
 	}
 

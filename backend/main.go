@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,9 +21,10 @@ func init() {
 }
 
 func main() {
-	port := flag.Int("port", 8080, "HTTP server port")
+	port := flag.Int("port", 0, "HTTP server port (0 for random available port)")
 	dataDir := flag.String("data", "./data", "Data directory for session and database files")
 	frontendDir := flag.String("frontend", "", "Directory containing frontend static files to serve")
+	demo := flag.Bool("demo", false, "Run in demo mode (fake paired status, serve from cache only)")
 	flag.Parse()
 
 	// Set up zerolog — write to both stderr and a log file for diagnostics
@@ -64,23 +66,39 @@ func main() {
 	}
 	defer db.Close()
 
+	// Bind listener early so we know the actual port (supports --port 0 for random)
+	addr := fmt.Sprintf("127.0.0.1:%d", *port)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		logger.Fatal().Err(err).Str("addr", addr).Msg("Failed to bind listener")
+	}
+	actualPort := listener.Addr().(*net.TCPAddr).Port
+
+	// Print machine-readable port for the Electron parent process to parse
+	fmt.Fprintf(os.Stdout, "LISTENING_PORT=%d\n", actualPort)
+
 	// Initialize WebSocket hub
-	hub := NewWSHub(logger, *port)
+	hub := NewWSHub(logger, actualPort)
 
 	// Initialize client
 	gmClient := NewGMClient(*dataDir, logger, hub, db)
 
-	// Try to restore existing session
-	if err := gmClient.Init(); err != nil {
-		logger.Error().Err(err).Msg("Failed to initialize client")
+	if *demo {
+		gmClient.SetStatus(StatusPaired)
+		hub.SetDemo(true)
+		logger.Info().Msg("Running in demo mode — status forced to paired, serving from cache only")
+	} else {
+		// Try to restore existing session
+		if err := gmClient.Init(); err != nil {
+			logger.Error().Err(err).Msg("Failed to initialize client")
+		}
 	}
 
 	// Set up HTTP handlers and server
 	handlers := NewHandlers(gmClient, db)
-	server := NewServer(handlers, hub, logger, *frontendDir, *port)
+	server := NewServer(handlers, hub, logger, *frontendDir, actualPort)
 
-	addr := fmt.Sprintf("127.0.0.1:%d", *port)
-	logger.Info().Str("addr", addr).Msg("Starting HTTP server")
+	logger.Info().Str("addr", listener.Addr().String()).Msg("Starting HTTP server")
 
 	// Graceful shutdown
 	go func() {
@@ -101,12 +119,11 @@ func main() {
 	}()
 
 	httpServer := &http.Server{
-		Addr:              addr,
 		Handler:           server.Handler(),
 		ReadHeaderTimeout: 15 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-	if err := httpServer.ListenAndServe(); err != nil {
+	if err := httpServer.Serve(listener); err != nil {
 		logger.Fatal().Err(err).Msg("Server failed")
 	}
 }

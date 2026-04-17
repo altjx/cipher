@@ -17,12 +17,18 @@ import treekill from 'tree-kill';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const BACKEND_PORT = 8080;
-const BACKEND_URL = `http://localhost:${BACKEND_PORT}`;
-const WS_URL = `ws://localhost:${BACKEND_PORT}/ws`;
-const DEV_FRONTEND_URL = 'http://localhost:5173';
+const DEV_FRONTEND_URL = 'http://localhost:5174';
 const STATUS_POLL_INTERVAL_MS = 500;
 const STATUS_POLL_TIMEOUT_MS = 15_000;
+
+let backendPort: number | null = null;
+
+function getBackendUrl(): string {
+  return `http://localhost:${backendPort}`;
+}
+function getWsUrl(): string {
+  return `ws://localhost:${backendPort}/ws`;
+}
 
 const isDev = !app.isPackaged;
 
@@ -161,7 +167,7 @@ function getDataDir(): string {
  */
 function isBackendRunning(): Promise<boolean> {
   return new Promise((resolve) => {
-    const req = http.get(`${BACKEND_URL}/api/status`, (res) => {
+    const req = http.get(`http://localhost:${backendPort}/api/status`, (res) => {
       res.resume(); // drain
       resolve(res.statusCode !== undefined && res.statusCode < 500);
     });
@@ -174,15 +180,6 @@ function isBackendRunning(): Promise<boolean> {
 }
 
 async function spawnBackend(): Promise<void> {
-  // In dev, check if the backend is already running (user started it manually).
-  if (isDev) {
-    const alreadyRunning = await isBackendRunning();
-    if (alreadyRunning) {
-      console.log('[electron] Backend already running on port', BACKEND_PORT);
-      return;
-    }
-  }
-
   const binaryPath = getBackendBinaryPath();
   const dataDir = getDataDir();
 
@@ -190,7 +187,7 @@ async function spawnBackend(): Promise<void> {
   console.log('[electron] Data dir:', dataDir);
 
   const args = [
-    '--port', String(BACKEND_PORT),
+    '--port', '0',
     '--data', dataDir,
   ];
 
@@ -205,8 +202,28 @@ async function spawnBackend(): Promise<void> {
 
   weSpawnedBackend = true;
 
-  backendProcess.stdout?.on('data', (data: Buffer) => {
-    process.stdout.write(`[backend] ${data.toString()}`);
+  // Parse the actual port from backend stdout (printed as "LISTENING_PORT=XXXXX")
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('Backend did not report its port within 10s'));
+    }, 10_000);
+
+    backendProcess!.stdout?.on('data', (data: Buffer) => {
+      const text = data.toString();
+      process.stdout.write(`[backend] ${text}`);
+      const match = text.match(/LISTENING_PORT=(\d+)/);
+      if (match && !backendPort) {
+        backendPort = parseInt(match[1], 10);
+        console.log('[electron] Backend listening on port', backendPort);
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+
+    backendProcess!.on('exit', (code) => {
+      clearTimeout(timeout);
+      reject(new Error(`Backend exited before reporting port (code=${code})`));
+    });
   });
 
   backendProcess.stderr?.on('data', (data: Buffer) => {
@@ -235,7 +252,7 @@ function waitForBackend(): Promise<void> {
         return;
       }
 
-      const req = http.get(`${BACKEND_URL}/api/status`, (res) => {
+      const req = http.get(`${getBackendUrl()}/api/status`, (res) => {
         res.resume();
         if (res.statusCode !== undefined && res.statusCode < 500) {
           resolve();
@@ -287,8 +304,9 @@ function connectWebSocket(): void {
     wsConnection = null;
   }
 
-  console.log('[electron] Connecting WebSocket to', WS_URL);
-  wsConnection = new WebSocket(WS_URL);
+  const wsUrl = getWsUrl();
+  console.log('[electron] Connecting WebSocket to', wsUrl);
+  wsConnection = new WebSocket(wsUrl);
 
   wsConnection.on('open', () => {
     console.log('[electron] WebSocket connected');
@@ -452,7 +470,7 @@ function createWindow(): void {
     mainWindow.loadURL(DEV_FRONTEND_URL);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    mainWindow.loadURL(BACKEND_URL);
+    mainWindow.loadURL(getBackendUrl());
   }
 
   // Show when ready
@@ -549,8 +567,8 @@ function buildMenu(): void {
 // ─── IPC handlers ────────────────────────────────────────────────────────────
 
 function setupIpcHandlers(): void {
-  ipcMain.handle('get-backend-url', () => BACKEND_URL);
-  ipcMain.handle('get-ws-url', () => WS_URL);
+  ipcMain.handle('get-backend-url', () => getBackendUrl());
+  ipcMain.handle('get-ws-url', () => getWsUrl());
 
   ipcMain.handle('get-settings', () => currentSettings);
 
@@ -703,7 +721,7 @@ function setupIpcHandlers(): void {
   ipcMain.handle('open-image-in-preview', async (_event, imageUrl: string) => {
     try {
       // Fetch the image from the backend
-      const fullUrl = imageUrl.startsWith('/') ? `${BACKEND_URL}${imageUrl}` : imageUrl;
+      const fullUrl = imageUrl.startsWith('/') ? `${getBackendUrl()}${imageUrl}` : imageUrl;
       const data = await new Promise<Buffer>((resolve, reject) => {
         const mod = fullUrl.startsWith('https') ? https : http;
         mod.get(fullUrl, (res) => {

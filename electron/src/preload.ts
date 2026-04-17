@@ -9,10 +9,10 @@ import { contextBridge, ipcRenderer } from 'electron';
  */
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  /** Get the backend base URL (http://localhost:8080) */
+  /** Get the backend base URL (port is assigned dynamically) */
   getBackendUrl: (): Promise<string> => ipcRenderer.invoke('get-backend-url'),
 
-  /** Get the WebSocket URL (ws://localhost:8080/ws) */
+  /** Get the WebSocket URL (port is assigned dynamically) */
   getWsUrl: (): Promise<string> => ipcRenderer.invoke('get-ws-url'),
 
   /**

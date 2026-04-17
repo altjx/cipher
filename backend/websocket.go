@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
@@ -14,8 +15,10 @@ import (
 func newUpgrader(port int) websocket.Upgrader {
 	allowedOrigins := map[string]bool{
 		"http://localhost:5173":                  true,
+		"http://localhost:5174":                  true,
 		fmt.Sprintf("http://localhost:%d", port): true,
 		"http://127.0.0.1:5173":                  true,
+		"http://127.0.0.1:5174":                  true,
 		fmt.Sprintf("http://127.0.0.1:%d", port): true,
 	}
 	return websocket.Upgrader{
@@ -35,6 +38,7 @@ type WSHub struct {
 	mu       sync.RWMutex
 	logger   zerolog.Logger
 	upgrader websocket.Upgrader
+	demo     bool
 }
 
 type WSClient struct {
@@ -67,6 +71,13 @@ func (h *WSHub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	h.mu.Unlock()
 
 	h.logger.Info().Msg("WebSocket client connected")
+
+	// In demo mode, immediately tell the new client the phone is "connected"
+	if h.demo {
+		if data, err := json.Marshal(WSEvent{Type: "phone_status", Data: PhoneStatusData{Status: "connected"}}); err == nil {
+			client.send <- data
+		}
+	}
 
 	go h.writePump(client)
 	go h.readPump(client)
@@ -107,6 +118,22 @@ func (h *WSHub) removeClient(client *WSClient) {
 		delete(h.clients, client)
 		close(client.send)
 		h.logger.Info().Msg("WebSocket client disconnected")
+	}
+}
+
+func (h *WSHub) SetDemo(enabled bool) {
+	h.demo = enabled
+	if enabled {
+		go h.demoTypingLoop()
+	}
+}
+
+// demoTypingLoop re-broadcasts a typing indicator every 4s so the frontend always shows it.
+func (h *WSHub) demoTypingLoop() {
+	ticker := time.NewTicker(4 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		h.BroadcastTyping("conv-1", "p-sarah", "Sarah Chen", true)
 	}
 }
 
