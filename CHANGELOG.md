@@ -6,6 +6,11 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-04-20
+
+### Fixed
+- Fixed an issue where users couldn't scroll back through older message history in conversations.
+
 ## [1.3.0] - 2026-04-17
 
 ### Added
@@ -77,6 +82,7 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 - Added commit hooks and workflow documentation.
 - Improved system message detection and command palette focus handling.
 
-[Unreleased]: https://github.com/altjx/cipher/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/altjx/cipher/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/altjx/cipher/compare/v1.3.0...v1.3.1
 [1.2.0]: https://github.com/altjx/cipher/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/altjx/cipher/compare/v1.0.0...v1.1.0
