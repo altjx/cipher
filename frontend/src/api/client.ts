@@ -94,7 +94,7 @@ export interface Message {
 
 export interface MessagesResponse {
   messages: Message[];
-  nextCursor: string | null;
+  nextCursor?: string | null;
 }
 
 export interface SendMessageRequest {
@@ -142,7 +142,7 @@ export interface WsMessagesRefreshed {
   data: {
     conversationId: string;
     messages: Message[];
-    nextCursor: string;
+    nextCursor?: string | null;
   };
 }
 

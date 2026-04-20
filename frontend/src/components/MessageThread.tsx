@@ -45,6 +45,10 @@ function isSameDay(ts1: number, ts2: number): boolean {
 // In-memory cache so switching back to a conversation is instant
 const messageCache = new Map<string, { messages: Message[]; cursor: string | null; hasMore: boolean }>();
 
+function normalizeNextCursor(nextCursor?: string | null): string | null {
+  return nextCursor || null;
+}
+
 export default function MessageThread({ conversationId, conversation, subscribe, targetMessageId, onTargetReached, detailOpen, onToggleDetail, onShowParticipantDetail: _onShowParticipantDetail, searchTrigger, refocusTrigger, emojiInsert, reactionEmoji }: MessageThreadProps) {
   const cached = messageCache.get(conversationId);
   const [messages, setMessages] = useState<Message[]>(cached?.messages ?? []);
@@ -213,16 +217,17 @@ export default function MessageThread({ conversationId, conversation, subscribe,
       // Skip if messages_refreshed already arrived with fresher data
       if (refreshedRef.current) return;
 
+      const nextCursor = normalizeNextCursor(res.nextCursor);
       setMessages(res.messages);
-      setCursor(res.nextCursor);
-      setHasMore(res.nextCursor !== null);
+      setCursor(nextCursor);
+      setHasMore(nextCursor !== null);
       // Always scroll to bottom when fresh data arrives
       setScrollGeneration((g) => g + 1);
 
       messageCache.set(conversationId, {
         messages: res.messages,
-        cursor: res.nextCursor,
-        hasMore: res.nextCursor !== null,
+        cursor: nextCursor,
+        hasMore: nextCursor !== null,
       });
 
       if (res.messages.length > 0) {
@@ -285,7 +290,7 @@ export default function MessageThread({ conversationId, conversation, subscribe,
         try {
           const res = await fetchMessages(conversationId, currentCursor);
           accumulated = [...res.messages, ...accumulated];
-          currentCursor = res.nextCursor ?? null;
+          currentCursor = normalizeNextCursor(res.nextCursor);
 
           if (res.messages.some((m) => m.id === targetMessageId)) {
             if (!cancelled) {
@@ -301,7 +306,7 @@ export default function MessageThread({ conversationId, conversation, subscribe,
             return;
           }
 
-          if (!res.nextCursor) break;
+          if (!currentCursor) break;
         } catch {
           break;
         }
@@ -343,16 +348,17 @@ export default function MessageThread({ conversationId, conversation, subscribe,
 
     // Background refresh completed — replace stale messages with fresh data
     const unsubRefreshed = subscribe('messages_refreshed', (data) => {
-      const d = data as { conversationId: string; messages: Message[]; nextCursor: string };
+      const d = data as { conversationId: string; messages: Message[]; nextCursor?: string | null };
       if (d.conversationId === conversationId) {
+        const nextCursor = normalizeNextCursor(d.nextCursor);
         refreshedRef.current = true;
         setMessages(d.messages);
-        setCursor(d.nextCursor || null);
-        setHasMore(!!d.nextCursor);
+        setCursor(nextCursor);
+        setHasMore(nextCursor !== null);
         messageCache.set(conversationId, {
           messages: d.messages,
-          cursor: d.nextCursor || null,
-          hasMore: !!d.nextCursor,
+          cursor: nextCursor,
+          hasMore: nextCursor !== null,
         });
         if (d.messages.length > 0) {
           const last = d.messages[d.messages.length - 1];
@@ -438,9 +444,18 @@ export default function MessageThread({ conversationId, conversation, subscribe,
       const prevHeight = el.scrollHeight;
 
       fetchMessages(conversationId, cursor).then((res) => {
-        setMessages((prev) => [...res.messages, ...prev]);
-        setCursor(res.nextCursor);
-        setHasMore(res.nextCursor !== null);
+        const nextCursor = normalizeNextCursor(res.nextCursor);
+        setMessages((prev) => {
+          const updated = [...res.messages, ...prev];
+          messageCache.set(conversationId, {
+            messages: updated,
+            cursor: nextCursor,
+            hasMore: nextCursor !== null,
+          });
+          return updated;
+        });
+        setCursor(nextCursor);
+        setHasMore(nextCursor !== null);
         setLoadingMore(false);
 
         requestAnimationFrame(() => {

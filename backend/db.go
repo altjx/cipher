@@ -429,15 +429,20 @@ func (d *Database) GetMessages(conversationID string, limit int, cursor string) 
 
 	var rows *sql.Rows
 	var err error
+	var pageCursor messageCursor
 
 	if cursor != "" {
+		pageCursor, err = parseMessageCursor(cursor)
+		if err != nil {
+			return nil, "", err
+		}
 		rows, err = d.db.Query(`
 			SELECT id, conversation_id, sender_id, sender_name, sender_is_me, text, timestamp, status, reactions_json, media_json, reply_to_json
 			FROM messages
 			WHERE conversation_id = ? AND timestamp < ?
 			ORDER BY timestamp DESC
 			LIMIT ?
-		`, conversationID, cursor, limit)
+		`, conversationID, pageCursor.Timestamp, limit)
 	} else {
 		rows, err = d.db.Query(`
 			SELECT id, conversation_id, sender_id, sender_name, sender_is_me, text, timestamp, status, reactions_json, media_json, reply_to_json
@@ -495,7 +500,7 @@ func (d *Database) GetMessages(conversationID string, limit int, cursor string) 
 
 	nextCursor := ""
 	if len(msgs) == limit {
-		nextCursor = fmt.Sprintf("%d", msgs[len(msgs)-1].Timestamp)
+		nextCursor = encodeMessageCursor(msgs[len(msgs)-1])
 	}
 
 	// Reverse to chronological order (oldest first) for display
@@ -729,15 +734,20 @@ func (d *Database) GetMediaMessages(conversationID string, limit int, cursor str
 
 	var rows *sql.Rows
 	var err error
+	var pageCursor messageCursor
 
 	if cursor != "" {
+		pageCursor, err = parseMessageCursor(cursor)
+		if err != nil {
+			return nil, "", err
+		}
 		rows, err = d.db.Query(`
 			SELECT id, conversation_id, sender_id, sender_name, sender_is_me, text, timestamp, status, reactions_json, media_json, reply_to_json
 			FROM messages
 			WHERE conversation_id = ? AND media_json != '[]' AND timestamp < ?
 			ORDER BY timestamp DESC
 			LIMIT ?
-		`, conversationID, cursor, limit)
+		`, conversationID, pageCursor.Timestamp, limit)
 	} else {
 		rows, err = d.db.Query(`
 			SELECT id, conversation_id, sender_id, sender_name, sender_is_me, text, timestamp, status, reactions_json, media_json, reply_to_json
@@ -795,7 +805,7 @@ func (d *Database) GetMediaMessages(conversationID string, limit int, cursor str
 
 	nextCursor := ""
 	if len(msgs) == limit {
-		nextCursor = fmt.Sprintf("%d", msgs[len(msgs)-1].Timestamp)
+		nextCursor = encodeMessageCursor(msgs[len(msgs)-1])
 	}
 
 	return msgs, nextCursor, nil

@@ -774,6 +774,17 @@ func (c *GMClient) FetchMessages(conversationID string, count int, cursor string
 	if cursor == "" {
 		cached, cachedCursor, err := c.db.GetMessages(conversationID, count, "")
 		if err == nil && len(cached) > 0 {
+			// A short cache page only proves we haven't cached much history yet.
+			// Fetch from the server so older messages remain reachable.
+			if len(cached) < count {
+				c.logger.Debug().
+					Str("conversation", conversationID).
+					Int("cached_count", len(cached)).
+					Int("requested_count", count).
+					Msg("Cache page shorter than requested, fetching messages from server")
+				return c.fetchMessagesFromServer(conversationID, count, "")
+			}
+
 			// Check if conversation metadata shows a newer message than the
 			// cache contains. This catches the case where conversation_update
 			// events updated the preview (last message) but the actual
@@ -818,8 +829,16 @@ func (c *GMClient) fetchMessagesFromServer(conversationID string, count int, cur
 
 	var gmCursor *gmproto.Cursor
 	if cursor != "" {
-		gmCursor = &gmproto.Cursor{
-			LastItemID: cursor,
+		parsedCursor, err := parseMessageCursor(cursor)
+		if err != nil {
+			return nil, "", err
+		}
+		gmCursor = parsedCursor.toGMCursor()
+		if gmCursor == nil {
+			// Older builds only stored timestamps in message cursors. If one of
+			// those cursors is still in flight, fall back to the DB cache rather
+			// than sending an invalid pagination cursor upstream.
+			return c.db.GetMessages(conversationID, count, cursor)
 		}
 	}
 
@@ -866,7 +885,10 @@ func (c *GMClient) fetchMessagesFromServer(conversationID string, count int, cur
 
 	nextCursor := ""
 	if c := resp.GetCursor(); c != nil {
-		nextCursor = c.GetLastItemID()
+		nextCursor = encodeMessageCursor(MessageResponse{
+			ID:        c.GetLastItemID(),
+			Timestamp: c.GetLastItemTimestamp(),
+		})
 	}
 
 	return msgs, nextCursor, nil
